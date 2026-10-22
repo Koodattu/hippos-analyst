@@ -147,3 +147,13 @@ vite.config.ts.timestamp-*
 
 # Turbo Repo
 .turbo
+
+# Private research data and Python runtime files
+data/
+*.sqlite3
+*.sqlite3-wal
+*.sqlite3-shm
+*.collector.lock
+__pycache__/
+*.py[cod]
+.venv/
