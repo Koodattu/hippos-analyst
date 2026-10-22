@@ -215,3 +215,36 @@ are included. The baseline copy remains ignored and intact.
 Next: stage this complete application/doc/test payload, inspect staged paths and
 whitespace, commit and normal-push main, verify remote SHA and local committed
 runtime, then record exact release results. No more provider requests this turn.
+
+## Source release and final local verification
+
+Application commit 55854832cc9551256b798355bfc20cab9eb9cf35 was pushed normally to
+origin/main. An isolated git-archive export passed 47 Python and 15 JS tests.
+The post-push live view exposed one new semantic case: a collected empty race
+list displayed the collected-field label with 0/0. Fixed in
+**d0ac02c059da94c6dbe29a4bf79cc7c34148408d**, pushed normally to main, with a new
+red/green coverage-state regression. Final JS count **16 passed**; Python source
+unchanged since its 47-test pass. Syntax/whitespace checks passed.
+
+Local runtime restarted from the clean source at http://127.0.0.1:8765 (session
+56323). Served assets compared byte-for-byte with source; overview, coverage and
+saved endpoints HTTP200. Chrome real-data reload verified 29 October's explicit
+empty-race-list state. Live coverage screenshot data/product-live-coverage.jpg.
+Test tabs closed and viewport reset; synthetic servers are shut down during
+cleanup. The app's live tab is kept open. No collector is running; no retry after
+request193's transient failure. All data and screenshots remain ignored.
+
+Remote application SHA verified after push. GitHub: zero workflows, no CI runs,
+zero deployments. No hosted deployment was attempted; no established workflow
+or hosting target exists. This missing prerequisite prevents claiming the full
+hosted-release outcome. No approval was denied and no credentials were changed.
+First goal-turn blocking observation only; do not misuse the goal tool's blocked
+status before its three-consecutive-turn rule. Independent authorized work is
+complete. If resumed, inspect this record and current remote/state rather than
+restarting research or generating unrelated improvements to fill time.
+
+Final standards/spec and stopping assessment: docs/product-improvements-2026-10-22.md.
+Further form fields need racer feedback; fresh-upcoming collection needs a budget
+tradeoff; prediction/odds/weather need separate evidence/contracts. No unresolved
+material product defect is known from tested journeys. Hosted release remains the
+explicit unfulfilled prerequisite, not a successful deployment or a silent skip.

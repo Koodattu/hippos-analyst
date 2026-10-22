@@ -37,7 +37,7 @@ still have previously collected entries; cancellation stays visible.
 ## Verification and evidence
 
 - `python -m unittest discover -s tests -v`: **47 passed**.
-- `node --test tests/ui.test.mjs`: **15 passed**.
+- `node --test tests/ui.test.mjs`: **16 passed**.
 - `node --check hippos_analyst/web/app.mjs`: passed.
 - New behavior followed red/green checks: five earlier visible starts, upcoming
   versus history, missing times, saved-ID persistence/failure/cap, bounded saved
@@ -147,3 +147,28 @@ python -m hippos_analyst --db data/demo-new.sqlite3 serve --port 8766
 The demo makes no network calls. Changing the reference date keeps the fixture
 useful for future manual checks. See the [work log](../work/goal-improvement/STATE.md)
 for source baselines, decisions and release details.
+
+## Release record
+
+- Application commit: `55854832cc9551256b798355bfc20cab9eb9cf35`.
+- Follow-up source correction: `d0ac02c059da94c6dbe29a4bf79cc7c34148408d`.
+- Both pushed normally to `https://github.com/Koodattu/hippos-analyst.git`, `main`.
+- The committed application was exported with `git archive` into an isolated
+  folder; all 47 Python and then-15 JS tests passed there. It does not depend on
+  omitted untracked files. The follow-up adds the 16th JS regression; all 16 pass.
+- Post-push real-data inspection found that Turku's fetched empty race list had
+  shown the complete-field label with 0/0 fields. The follow-up gives it its own
+  explicit collected-empty-race-list state. Red/green regression and the live
+  29 October row verified it. No provider requests were needed.
+- Established local runtime restarted at `http://127.0.0.1:8765`. Every served
+  static asset matched the clean committed files; overview, coverage and saved
+  read endpoints returned HTTP 200. Final Chrome reload showed the corrected
+  live coverage state. The local archive remains outside Git.
+- GitHub reported zero workflows, no triggered CI runs and zero deployments.
+  CI was **not run** and hosted deployment was **not performed**. There is no
+  deployment URL or hosted revision to verify. No hosting configuration,
+  credentials, account or infrastructure were added to force a release.
+
+The product/source release is verified locally. The broader hosted-release step
+is constrained by that missing prerequisite; this is not a claim of successful
+hosted deployment. The final documentation checkpoint is a separate commit.

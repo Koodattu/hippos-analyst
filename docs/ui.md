@@ -156,6 +156,6 @@ targeted Chrome and contrast checks, not a full accessibility certification.
 
 ### Product improvement wave — 22 October 2026
 
-Current verification is **47 Python + 15 frontend tests** plus syntax and browser
+Current verification is **47 Python + 16 frontend tests** plus syntax and browser
 checks. See [the product record](product-improvements-2026-10-22.md) for complete
 journeys, responsive evidence, semantics, limitations and reproducible fixtures.
