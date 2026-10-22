@@ -100,8 +100,9 @@ behavior was not redesigned. Large template strings follow the existing stack;
 a framework or broad architecture rewrite has no demonstrated benefit here.
 
 Spec review: the product, data, verification and durable-documentation work is
-implemented. A hosted release is unavailable because there is no established
-hosting/deployment workflow; no new infrastructure has been provisioned.
+implemented. On 22 October the user explicitly confirmed local-only delivery.
+The verified local runtime is the release endpoint; hosted deployment is outside
+the agreed scope, and no infrastructure has been provisioned.
 
 The Impeccable detector ran once on the final UI and exited 1 with two warnings
 for the same existing Inter font stack (HTML inference and CSS). This is an
@@ -125,9 +126,9 @@ Strongest remaining opportunities:
 - **Predictions/weather/odds:** potentially interesting, but the archive is small
   and incomplete; provider contracts and leak-free historical evaluation need
   separate work. These are not disguised as working features.
-- **Hosted access:** blocked by missing deployment prerequisites and the explicit
-  prohibition on provisioning hosting or changing deployment settings. The
-  established local server remains the verified runtime.
+- **Hosted access:** outside the final scope after the user confirmed local-only
+  delivery. The established local server is the verified runtime. Hosting would
+  require a separate request and deployment design.
 
 No further observed feasible product defect warrants another change in this
 wave. This is an evidence-based product checkpoint, not a claim that every
@@ -169,6 +170,9 @@ for source baselines, decisions and release details.
   deployment URL or hosted revision to verify. No hosting configuration,
   credentials, account or infrastructure were added to force a release.
 
-The product/source release is verified locally. The broader hosted-release step
-is constrained by that missing prerequisite; this is not a claim of successful
-hosted deployment. The final documentation checkpoint is a separate commit.
+The user confirmed **Finish as a local-only project** on 22 October 2026, resolving
+the earlier release blocker. The local app was rechecked after that decision:
+all served assets match the committed source, and the overview endpoint returns
+HTTP 200 with 15 meetings and 1,502 horses. No upstream collection was restarted.
+The agreed local-only product/source release is complete. Hosted deployment was
+not performed and is not required by the clarified scope.

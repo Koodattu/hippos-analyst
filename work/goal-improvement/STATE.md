@@ -248,3 +248,23 @@ Further form fields need racer feedback; fresh-upcoming collection needs a budge
 tradeoff; prediction/odds/weather need separate evidence/contracts. No unresolved
 material product defect is known from tested journeys. Hosted release remains the
 explicit unfulfilled prerequisite, not a successful deployment or a silent skip.
+
+
+## Final scope confirmation — 22 October 2026
+
+The user answered the release clarification: **Finish as a local-only project**.
+This supersedes the earlier deployment-blocker notes. No hosting is required and
+no hosting/infrastructure changes are authorized or needed for this completion.
+
+Revalidated the clean source revision 74eff3d6488261f842358c8dc51a1b04baea0213
+before this documentation-only update. The running localhost app's static assets
+match source byte-for-byte. Overview returned HTTP 200: 15 meetings, 1,502 horses,
+25 pending jobs. No provider requests or collector restart were made. Application
+code is unchanged from the verified 47 Python / 16 JS test release, so a redundant
+test run is unnecessary. The completed product/research, UI journeys, tests,
+source release and stopping assessment remain in the product improvement record.
+
+Commit and push this final scope documentation, verify the remote revision and
+clean tree, then mark the goal complete. The daily bounded collection policy
+remains separate ongoing operation; completing this improvement program does not
+claim the entire provider archive has been crawled.
