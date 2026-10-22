@@ -104,3 +104,10 @@ export function splitStarts(starts, today) {
   upcoming.sort((a, b) => a.date.localeCompare(b.date) || Number(a.race_number) - Number(b.race_number));
   return { upcoming, history };
 }
+
+export function coverageState(day) {
+  if (day.fetched_at === null) return 'notCollected';
+  if (!day.meetings) return 'emptyCalendar';
+  if (day.missing_lists || day.fields < day.races) return 'partialCollection';
+  return day.races ? 'completeCollection' : 'emptyRaceLists';
+}

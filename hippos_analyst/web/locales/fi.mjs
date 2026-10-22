@@ -4,6 +4,7 @@ export const fi = {
   collectionState: 'Keräystila', calendarUpdated: 'Päiväkalenteri päivitetty',
   notCollected: 'Ei vielä kerätty', emptyCalendar: 'Kalenteri kerätty · ei ravipäiviä',
   partialCollection: 'Osittain kerätty', completeCollection: 'Lähtölistat kerätty',
+  emptyRaceLists: 'Lähtöluettelot kerätty · ei lähtöjä',
   refreshPending: 'Päivitys odottaa', missingLists: n => `${n} ravipäivän lähtöluettelo puuttuu`,
   collectionHint: 'Aineisto kertyy vähitellen erillisellä kerääjällä. Selaaminen ei käynnistä hakuja.',
   pausedHint: 'Keräys on keskeytetty. Keskeytyksen syy on selvitettävä ennen jatkamista.',

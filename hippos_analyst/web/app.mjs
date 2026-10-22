@@ -1,6 +1,6 @@
 import { loadSaved, toggleSaved } from './saved.mjs';
 import { fi as t } from './locales/fi.mjs';
-import { escapeHtml as e, localDay, addDays, route, parseRoute, dateRange, orderEntries, historyStats, kilometerTime, splitStarts, isWinner, hasResult, resultText, calendarSelection, calendarParams, calendarPage, raceOrder, withRaceOrder, horseReturnRoute } from './model.mjs';
+import { escapeHtml as e, localDay, addDays, route, parseRoute, dateRange, orderEntries, historyStats, coverageState, kilometerTime, splitStarts, isWinner, hasResult, resultText, calendarSelection, calendarParams, calendarPage, raceOrder, withRaceOrder, horseReturnRoute } from './model.mjs';
 
 const app = document.querySelector('#app');
 let overview, controller, generation = 0, currentRace, renderedRoute, renderedCalendarPage;
@@ -82,11 +82,10 @@ async function calendarView(params) {
 
 async function coverageView(params) {
   const data = await api('coverage', { offset: params.offset || '0' });
-  const status = day => day.fetched_at === null ? t.notCollected : day.meetings === 0 ? t.emptyCalendar : day.missing_lists || day.fields < day.races ? t.partialCollection : t.completeCollection;
   return `${header(t.coverageTitle, t.coverageIntro, '', freshness(overview.last_fetched_at))}
     <div class="collection-status" role="status">${e(overview.paused ? t.pausedHint : overview.failed ? t.failedHint : t.collectionHint)} ${e(t.queue(overview.pending))}</div>
     <p class="section-intro">${e(t.coverageMeaning)}</p>
-    ${data.days.length ? `<div class="table-scroll" tabindex="0" role="region" aria-label="${e(t.coverageTitle)}"><table><thead><tr>${[t.date, t.collectionState, t.meetingHeading, t.racecard, t.calendarUpdated].map(x => `<th scope="col">${e(x)}</th>`).join('')}</tr></thead><tbody>${data.days.map(day => `<tr><td>${link('calendar', {from:day.date,to:day.date}, e(dateText(day.date)))}</td><td>${e(status(day))}${day.status === 'failed' ? `<small>${e(t.failed)}</small>` : day.status === 'pending' && day.fetched_at !== null ? `<small>${e(t.refreshPending)}</small>` : ''}</td><td class="numeric">${day.fetched_at === null ? t.unknown : e(day.meetings)}</td><td>${day.fetched_at === null ? t.unknown : e(t.fields(day.fields, day.races))}${day.missing_lists ? `<small>${e(t.missingLists(day.missing_lists))}</small>` : ''}</td><td>${e(timestamp(day.fetched_at))}</td></tr>`).join('')}</tbody></table></div>` : empty(t.noCoverage, t.noCoverageHint)}
+    ${data.days.length ? `<div class="table-scroll" tabindex="0" role="region" aria-label="${e(t.coverageTitle)}"><table><thead><tr>${[t.date, t.collectionState, t.meetingHeading, t.racecard, t.calendarUpdated].map(x => `<th scope="col">${e(x)}</th>`).join('')}</tr></thead><tbody>${data.days.map(day => `<tr><td>${link('calendar', {from:day.date,to:day.date}, e(dateText(day.date)))}</td><td>${e(t[coverageState(day)])}${day.status === 'failed' ? `<small>${e(t.failed)}</small>` : day.status === 'pending' && day.fetched_at !== null ? `<small>${e(t.refreshPending)}</small>` : ''}</td><td class="numeric">${day.fetched_at === null ? t.unknown : e(day.meetings)}</td><td>${day.fetched_at === null ? t.unknown : e(t.fields(day.fields, day.races))}${day.missing_lists ? `<small>${e(t.missingLists(day.missing_lists))}</small>` : ''}</td><td>${e(timestamp(day.fetched_at))}</td></tr>`).join('')}</tbody></table></div>` : empty(t.noCoverage, t.noCoverageHint)}
     <div class="pagination">${data.offset ? link('coverage', {offset:Math.max(0,data.offset-data.limit)}, e(t.previous), 'button') : '<span></span>'}<span>${e(t.page(data.total ? data.offset+1 : 0, Math.min(data.offset+data.limit,data.total),data.total))}</span>${data.offset+data.limit<data.total ? link('coverage',{offset:data.offset+data.limit},e(t.next),'button') : '<span></span>'}</div>`;
 }
 

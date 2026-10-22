@@ -1,7 +1,7 @@
 import { loadSaved, toggleSaved } from '../hippos_analyst/web/saved.mjs';
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { hasResult, isWinner, historyStats, resultText, kilometerTime, splitStarts, orderEntries, localDay, addDays, route, parseRoute, dateRange, escapeHtml, calendarSelection, calendarParams, calendarPage, raceOrder, withRaceOrder, horseReturnRoute } from '../hippos_analyst/web/model.mjs';
+import { coverageState, hasResult, isWinner, historyStats, resultText, kilometerTime, splitStarts, orderEntries, localDay, addDays, route, parseRoute, dateRange, escapeHtml, calendarSelection, calendarParams, calendarPage, raceOrder, withRaceOrder, horseReturnRoute } from '../hippos_analyst/web/model.mjs';
 
 test('horse upcoming entries stay separate from past form and missing times stay missing', () => {
   const starts = [
@@ -142,4 +142,15 @@ test('saved horse IDs persist, deduplicate, reject corrupt data and preserve sta
   assert.deepEqual(loadSaved(storage).ids, ['123']);
   value = JSON.stringify(Array.from({length:100}, (_, i) => String(i)));
   assert.throws(() => toggleSaved(storage, '101'), /limit/);
+});
+
+
+test('coverage never calls an empty race list a collected field', () => {
+  const day = { fetched_at: 100, meetings: 1, races: 0, fields: 0, missing_lists: 0 };
+  assert.equal(coverageState({...day, fetched_at:null}), 'notCollected');
+  assert.equal(coverageState({...day, meetings:0}), 'emptyCalendar');
+  assert.equal(coverageState({...day, missing_lists:1}), 'partialCollection');
+  assert.equal(coverageState(day), 'emptyRaceLists');
+  assert.equal(coverageState({...day, races:2, fields:1}), 'partialCollection');
+  assert.equal(coverageState({...day, races:2, fields:2}), 'completeCollection');
 });
