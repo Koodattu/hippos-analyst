@@ -6,12 +6,16 @@ Python 3.11+ and its standard library: `urllib`, `sqlite3`, `argparse`, and
 `unittest`. No production dependencies or package installation are required.
 
 The data path is calendar -> Finnish meetings -> races -> participants/results.
-Horse identities are discovered from participants. No horse-register enumeration,
-recursive pedigree crawl, browser automation, account login or write API is used.
+Horse identities are discovered from participants and verified parent references.
+Selected participant profiles can discover at most two ancestor generations.
+No horse-register enumeration, unbounded pedigree crawl, account login or write
+API is used.
 
 The web UI reads a local application API backed by SQLite. UI
-navigation does not trigger requests to Hippos. Veikkaus and FMI will have separate
-source importers if added; avoid a generic plugin framework until necessary.
+navigation does not trigger provider requests. The optional `toto.py` importer
+adds Veikkaus observations through the shared collector lock, budget ledger and
+stop state, with a separate queue selection and stricter limits. See [Toto](toto.md).
+Weather remains planned; there is no generic provider/plugin framework.
 
 `server.py` serves vanilla ES modules and CSS using a standard-library HTTP server
 bound to `127.0.0.1`. Each API request opens SQLite in read-only mode and holds a
@@ -30,6 +34,9 @@ This is a local development app, not an internet deployment configuration.
 - `meetings`, `races`, `horses`, `entries`: queryable latest observed records.
   Results are currently columns of `entries`, rather than a second redundant table.
 - `control`: persistent operator/provider pause, cooldown and failure counter.
+- `maintenance_state`: the last Helsinki day on which profile roots were seeded.
+  `maintenance.py` plans age-gated refreshes and contiguous history under the shared
+  lock; queue shares prevent refreshes from starving profiles and older history.
   A future `paused_until` blocks every path even without a persistent pause reason;
   this preserves transient service backoff and Retry-After across restarts.
 
@@ -46,7 +53,8 @@ do not copy only the main file while WAL writes are active. See [SQLite WAL](htt
 
 Source snapshots are **not unrestricted raw responses**. The explicit allowlists
 in `api.py` retain race facts, horse identifiers and public driver/trainer competition
-names. Owner details, contact information, microchips, vaccination information,
+names. Profile collection additionally retains owner/breeder display labels and
+sire/dam IDs and names. Contact information, microchips, vaccination information,
 free-text comments, cookies and response error pages are not archived. Unknown
 fields are dropped; unexpected structures in retained fields pause collection.
 Behavioral boolean fields are type-checked, including a required scratch flag;
@@ -76,8 +84,8 @@ record their model version, input cutoff and creation time before race start.
 
 ## Current limitations
 
-- No full horse-profile/pedigree importer, odds importer, weather importer
-  or prediction model yet.
+- Bounded, minimized horse profiles and pedigree links are implemented; there is
+  no full-register, odds or weather importer, or prediction model yet.
 - History coverage is bounded by explicitly seeded dates; no claim of total archive
   completeness. `status` shows pending/failed jobs, including unfinished race fields.
 - An entry refresh replaces the current field, preserving previous snapshots.
@@ -114,3 +122,14 @@ with collection metadata. Neither endpoint writes SQLite or contacts Hippos.
 All participate in the existing per-request SQLite read transaction. No migration
 or production dependency was introduced. Browser-local saved preferences are a
 separate store; future entries and historical results are split in the frontend.
+
+People directories and profiles now read the driver/trainer IDs already in entry
+JSON. Role-scoped identity, source-membership reconciliation, bounded history
+pages and API contracts are documented in [people and relationships](people.md).
+There is no new identity table or upstream importer; aggregation cost still grows
+with visible entries even though responses contain at most 30 rows.
+
+Owner/breeder source-label groups and parent relationships now use additive
+`horse_profiles`, `horse_parties` and `horse_parents` tables. Ancestor identities
+may have no local race history. See [horse relationships](horse-relationships.md)
+for contracts, atomic refresh semantics, depth bounds and verification.

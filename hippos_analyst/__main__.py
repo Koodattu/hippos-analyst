@@ -7,7 +7,7 @@ import sys
 import time
 from datetime import date, timedelta
 
-from . import api, collector, store
+from . import api, collector, store, toto
 
 
 def parser():
@@ -23,6 +23,25 @@ def parser():
     worker.add_argument("--max-requests", type=int, default=25)
     worker.add_argument("--delay", type=float, default=15)
     worker.add_argument("--daily-budget", type=int, default=500)
+    maintain = commands.add_parser('maintain', help='Bounded refresh, profile and history maintenance; shared lock and limits')
+    maintain.add_argument('--date', required=True, type=api.iso_date, help='Current Europe/Helsinki calendar date')
+    maintain.add_argument('--max-requests', type=int, default=40)
+    toto_seed = commands.add_parser('seed-toto', help='Opt in to Toto enrichment for 1–3 already collected races; offline')
+    toto_seed.add_argument('--date', required=True, type=api.iso_date)
+    toto_seed.add_argument('--track', required=True)
+    toto_seed.add_argument('--races', required=True, help='Comma-separated race numbers, at most three')
+    toto_seed.add_argument('--samples', type=int, default=3)
+    toto_seed.add_argument('--interval', type=int, default=1800, help='Seconds between scheduled odds samples; minimum 900')
+    toto_run = commands.add_parser('run-toto', help='Run only due Toto jobs, sharing the lock, ledger and stop state')
+    toto_run.add_argument('--max-requests', type=int, default=8)
+    toto_run.add_argument('--delay', type=float, default=60)
+    toto_run.add_argument('--daily-budget', type=int, default=200)
+    profiles = commands.add_parser('seed-profiles', help='Queue a bounded set of known horses and ancestors; offline')
+    profiles.add_argument('--id', help='One exact horse ID already present in this archive')
+    profiles.add_argument('--limit', type=int, default=10)
+    profiles.add_argument('--generations', type=int, default=2)
+    profiles.add_argument('--priority', type=int, default=110)
+    profiles.add_argument('--refresh', action='store_true', help='Refresh the explicitly selected horse profile')
     commands.add_parser("status", help="Show stored counts, queue and persistent stop state")
     stop = commands.add_parser("pause", help="Persistently stop further collection")
     stop.add_argument("--reason", default="Stopped by operator")
@@ -67,9 +86,30 @@ def main(argv=None):
                     day = (start + timedelta(days=offset)).isoformat()
                     count += store.enqueue(db, api.calendar_path(day), "calendar", {"date": day}, args.priority, args.refresh)
             print(f"Queued {count} calendars. No requests sent.")
-        elif args.command == "run":
+        elif args.command == 'seed-profiles':
+            with db:
+                if args.id:
+                    if not db.execute('SELECT 1 FROM horses WHERE id=?', (args.id,)).fetchone():
+                        raise ValueError('Select a horse already in the archive')
+                    count = store.enqueue_profile(db, args.id, args.generations, args.priority, args.refresh)
+                else:
+                    if args.refresh:
+                        raise ValueError('Profile refresh requires --id')
+                    count = store.seed_profiles(db, args.limit, args.generations, args.priority)
+            print(f'Queued {count} profile jobs. No requests sent.')
+        elif args.command == 'seed-toto':
+            with db:
+                count = toto.seed(db, args.date, args.track, args.races.split(','), args.samples, args.interval)
+            print(f'Queued {count} Toto meeting seeds. No requests sent.')
+        elif args.command == 'maintain':
+            from . import maintenance
             with collector.worker_lock(args.db):
-                outcome = collector.run(db, max_requests=args.max_requests, delay=args.delay, daily_budget=args.daily_budget)
+                outcome = maintenance.run(db,args.date,max_requests=args.max_requests)
+            return 2 if outcome in ('paused','retry','failed') else 0
+        elif args.command in ('run', 'run-toto'):
+            with collector.worker_lock(args.db):
+                outcome = collector.run(db, max_requests=args.max_requests, delay=args.delay, daily_budget=args.daily_budget,
+                                        provider='toto' if args.command == 'run-toto' else 'hippos')
             return 2 if outcome in ("paused", "retry", "failed") else 0
         elif args.command == "status":
             display(store.status(db))

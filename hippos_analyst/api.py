@@ -44,6 +44,16 @@ def runners_path(day, track, number):
     return f"/race/{iso_date(day)}/{identifier(track)}/start/{identifier(number)}"
 
 
+def horse_id(value):
+    if isinstance(value, bool) or not isinstance(value, (str, int)) or not re.fullmatch(r'[0-9]{1,30}', str(value)) or int(value) == 0:
+        raise SchemaError('Invalid horse ID')
+    return str(value)
+
+
+def profile_path(value):
+    return f'/horse/{horse_id(value)}'
+
+
 @dataclass
 class Response:
     status: int
@@ -68,7 +78,7 @@ class NoRedirects(HTTPRedirectHandler):
 def fetch(path):
     # Paths are derived from validated calendar records, never arbitrary URLs.
     if not re.fullmatch(r"/race/(?:search/\d{4}-\d{2}-\d{2}/\d{4}-\d{2}-\d{2}/|"
-                        r"\d{4}-\d{2}-\d{2}/[A-Za-z0-9_-]+/(?:races|start/[A-Za-z0-9_-]+))", path):
+                        r"\d{4}-\d{2}-\d{2}/[A-Za-z0-9_-]+/(?:races|start/[A-Za-z0-9_-]+))|/horse/[0-9]{1,30}", path):
         raise ValueError("Unsupported Hippos API path")
     request = Request(BASE_URL + path, headers={
         "Accept": "application/json",
@@ -120,6 +130,8 @@ def identity(record, day, track=None, number=None):
 
 def normalize(kind, payload, context):
     """Validate complete responses and retain only research-relevant fields."""
+    if kind == 'profile':
+        return [normalize_profile(payload, context['id'])]
     if not isinstance(payload, list):
         raise SchemaError("Expected an array, not an error object or another schema")
     day = context["date"]
@@ -182,3 +194,41 @@ def normalize(kind, payload, context):
         else:
             raise SchemaError("Unknown job kind")
     return output
+
+
+def normalize_profile(payload, expected_id):
+    if not isinstance(payload, dict) or horse_id(payload.get('id')) != horse_id(expected_id):
+        raise SchemaError('Profile identity does not match request')
+    result = {'id': horse_id(payload['id'])}
+    # Names only: no contact, chip, laboratory, vaccination or free-text fields.
+    for key in ('name', 'ownerName', 'breederName', 'birthDate', 'breedCode',
+                'breedFinName', 'gender', 'registrationCountry'):
+        value = payload.get(key)
+        if value is not None and not isinstance(value, str):
+            raise SchemaError(f'Expected text for {key}')
+        result[key] = value.strip() if value and value.strip() not in ('-', '—') else None
+    if not result['name']:
+        raise SchemaError('Missing horse name')
+    if result['birthDate']:
+        iso_date(result['birthDate'])
+    for key in ('birthDateAccurate', 'dead'):
+        if key in payload and not isinstance(payload[key], bool):
+            raise SchemaError(f'Expected a boolean for {key}')
+        result[key] = payload.get(key)
+    for relation in ('sire', 'dam'):
+        parent = payload.get(relation)
+        if parent is None:
+            result[relation] = None
+            continue
+        if not isinstance(parent, dict):
+            raise SchemaError('Expected parent object')
+        name = parent.get('name')
+        if name is not None and not isinstance(name, str):
+            raise SchemaError('Invalid parent name')
+        parent_id = parent.get('id')
+        # Blank/zero source placeholders do not create identities or jobs.
+        parent_id = None if parent_id in (None, '', '-', '0', 0) and not isinstance(parent_id, bool) else horse_id(parent_id)
+        if parent_id == result['id']:
+            raise SchemaError('Horse cannot be its own parent')
+        result[relation] = {'id': parent_id, 'name': name.strip() if name and name.strip() not in ('-', '—') else None}
+    return result

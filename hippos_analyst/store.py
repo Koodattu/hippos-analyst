@@ -5,7 +5,7 @@ import json
 import sqlite3
 from pathlib import Path
 
-from .api import races_path, runners_path
+from .api import races_path, runners_path, profile_path, horse_id
 
 
 def encode(value):
@@ -74,6 +74,39 @@ def connect(path):
             FOREIGN KEY(date, track, race_number) REFERENCES races(date, track, number)
         );
         CREATE INDEX IF NOT EXISTS entries_horse ON entries(horse_id, date);
+        CREATE TABLE IF NOT EXISTS toto_targets (
+            date TEXT NOT NULL, track TEXT NOT NULL, number TEXT NOT NULL,
+            card_id TEXT, race_id TEXT UNIQUE, scheduled_start REAL, race_status TEXT,
+            match_status TEXT NOT NULL DEFAULT 'pending', runners TEXT, runners_at REAL,
+            pool_id TEXT, note TEXT,
+            PRIMARY KEY(date,track,number),
+            FOREIGN KEY(date,track,number) REFERENCES races(date,track,number)
+        );
+        CREATE TABLE IF NOT EXISTS toto_observations (
+            request_id INTEGER PRIMARY KEY REFERENCES requests(id),
+            race_id TEXT NOT NULL REFERENCES toto_targets(race_id), pool_id TEXT NOT NULL,
+            observed_at REAL NOT NULL, scheduled_start REAL NOT NULL,
+            phase TEXT NOT NULL, body TEXT NOT NULL
+        );
+        CREATE INDEX IF NOT EXISTS toto_observations_race ON toto_observations(race_id,observed_at DESC);
+        CREATE TABLE IF NOT EXISTS horse_profiles (
+            horse_id TEXT PRIMARY KEY REFERENCES horses(id), data TEXT NOT NULL, fetched_at REAL NOT NULL
+        );
+        CREATE TABLE IF NOT EXISTS horse_parties (
+            horse_id TEXT NOT NULL REFERENCES horse_profiles(horse_id),
+            role TEXT NOT NULL CHECK(role IN ('owner','breeder')), label TEXT NOT NULL,
+            party_key TEXT NOT NULL, PRIMARY KEY(horse_id,role)
+        );
+        CREATE INDEX IF NOT EXISTS parties_lookup ON horse_parties(role,party_key,horse_id);
+        CREATE TABLE IF NOT EXISTS horse_parents (
+            horse_id TEXT NOT NULL REFERENCES horse_profiles(horse_id),
+            role TEXT NOT NULL CHECK(role IN ('sire','dam')), parent_id TEXT REFERENCES horses(id),
+            name TEXT, PRIMARY KEY(horse_id,role)
+        );
+        CREATE INDEX IF NOT EXISTS parents_lookup ON horse_parents(parent_id,horse_id);
+        CREATE TABLE IF NOT EXISTS maintenance_state (
+            name TEXT PRIMARY KEY, value TEXT NOT NULL
+        );
         PRAGMA user_version = 1;
     """)
     return db
@@ -87,11 +120,24 @@ def enqueue(db, path, kind, context, priority=100, refresh=False):
     added = cursor.rowcount
     if refresh:
         added += db.execute(
-            "UPDATE jobs SET status='pending',next_attempt=0,last_error=NULL,priority=? "
-            "WHERE path=? AND status='done'", (priority, path),
+            "UPDATE jobs SET status='pending',next_attempt=0,last_error=NULL,priority=?,context=? "
+            "WHERE path=? AND status='done'", (priority, encode(context), path),
         ).rowcount
     # Failed jobs require deliberate diagnosis instead of silently being retried.
     return added
+
+
+def enqueue_refresh(db, path, kind, context, priority, now, interval=86400):
+    """Refresh stale successful jobs; preserve pending cooldowns and failed jobs."""
+    context = {**context, 'refresh_after': interval}
+    job = db.execute('SELECT status,last_success FROM jobs WHERE path=?', (path,)).fetchone()
+    if job and job['status'] == 'pending':
+        db.execute('UPDATE jobs SET context=?,priority=min(priority,?) WHERE path=?',
+                   (encode(context), priority, path))
+        return 0
+    if job and (job['status'] == 'failed' or (job['last_success'] is not None and job['last_success'] > now-interval)):
+        return 0
+    return enqueue(db, path, kind, context, priority, True)
 
 
 def save_response(db, job, records, request_id, now):
@@ -103,7 +149,14 @@ def save_response(db, job, records, request_id, now):
     snapshot_id = db.execute("SELECT id FROM snapshots WHERE path=? AND sha256=?",
                              (job["path"], digest)).fetchone()[0]
     context = json.loads(job["context"])
-    day = context["date"]
+    if job['kind'].startswith('toto_'):
+        from . import toto
+        toto.save_response(db, job, records, request_id, now)
+    day = context.get("date")
+    def discover(path, kind, child_context):
+        if context.get('refresh_after'):
+            return enqueue_refresh(db, path, kind, child_context, job['priority'], now, context['refresh_after'])
+        return enqueue(db, path, kind, child_context, job['priority'], True)
     for record in records:
         data = encode(record)
         if job["kind"] == "calendar":
@@ -113,7 +166,7 @@ def save_response(db, job, records, request_id, now):
                 city=excluded.city,canceled=excluded.canceled,data=excluded.data,fetched_at=excluded.fetched_at""",
                 (day, track, record.get("name"), record.get("startTime"), record.get("trackCity"),
                  record.get("canceled"), data, now))
-            enqueue(db, races_path(day, track), "races", {"date": day, "track": track}, job["priority"], True)
+            discover(races_path(day, track), "races", {"date": day, "track": track})
         elif job["kind"] == "races":
             track, number = context["track"], record["startNumber"]
             db.execute("""INSERT INTO races VALUES(?,?,?,?,?,?,?,?)
@@ -121,8 +174,8 @@ def save_response(db, job, records, request_id, now):
                 distance=excluded.distance,data=excluded.data,fetched_at=excluded.fetched_at""",
                 (day, track, number, record.get("eventType"), record.get("startForm"),
                  record.get("baseDistance"), data, now))
-            enqueue(db, runners_path(day, track, number), "runners",
-                    {"date": day, "track": track, "number": number}, job["priority"], True)
+            discover(runners_path(day, track, number), "runners",
+                     {"date": day, "track": track, "number": number})
     if job["kind"] == "runners":
         # A response is the entire current field. Historical versions remain in snapshots.
         db.execute("DELETE FROM entries WHERE date=? AND track=? AND race_number=?",
@@ -136,6 +189,29 @@ def save_response(db, job, records, request_id, now):
                 (day, context["track"], context["number"], record["programNumber"], record["horseId"],
                  record.get("placing"), record.get("kilometerTime"), record.get("price"),
                  record.get("absent"), encode(record), now))
+    if job['kind'] == 'profile':
+        record = records[0]
+        db.execute("""INSERT INTO horses VALUES(?,?,?,?,?) ON CONFLICT(id) DO UPDATE SET
+            name=excluded.name,breed=coalesce(excluded.breed,horses.breed),
+            country=coalesce(excluded.country,horses.country),fetched_at=excluded.fetched_at""",
+            (record['id'], record['name'], record.get('breedCode'), record.get('registrationCountry'), now))
+        db.execute('INSERT INTO horse_profiles VALUES(?,?,?) ON CONFLICT(horse_id) DO UPDATE SET data=excluded.data,fetched_at=excluded.fetched_at',
+                   (record['id'], encode(record), now))
+        db.execute('DELETE FROM horse_parties WHERE horse_id=?', (record['id'],))
+        for role in ('owner', 'breeder'):
+            label = record.get(role + 'Name')
+            if label:
+                key = hashlib.sha256(label.encode('utf-8')).hexdigest()
+                db.execute('INSERT INTO horse_parties VALUES(?,?,?,?)', (record['id'], role, label, key))
+        db.execute('DELETE FROM horse_parents WHERE horse_id=?', (record['id'],))
+        for role in ('sire', 'dam'):
+            parent = record.get(role)
+            if not parent:
+                continue
+            if parent['id']:
+                db.execute('INSERT OR IGNORE INTO horses VALUES(?,?,NULL,NULL,?)', (parent['id'], parent['name'] or parent['id'], now))
+            db.execute('INSERT INTO horse_parents VALUES(?,?,?,?)', (record['id'], role, parent['id'], parent['name']))
+        discover_parents(db, record['id'], context.get('remaining', 0), job['priority'])
     db.execute("UPDATE requests SET outcome='ok',snapshot_id=?,finished_at=? WHERE id=?",
                (snapshot_id, now, request_id))
     db.execute("UPDATE jobs SET status='done',last_success=?,last_error=NULL,next_attempt=0 WHERE path=?",
@@ -144,11 +220,48 @@ def save_response(db, job, records, request_id, now):
 
 
 def status(db):
+    from . import toto
     return {
+        "toto": toto.coverage(db),
         "control": dict(db.execute("SELECT * FROM control").fetchone()),
         "jobs": {row[0]: row[1] for row in db.execute("SELECT status,count(*) FROM jobs GROUP BY status")},
         "counts": {table: db.execute(f"SELECT count(*) FROM {table}").fetchone()[0]
-                   for table in ("meetings", "races", "entries", "horses", "snapshots", "requests")},
+                   for table in ("meetings", "races", "entries", "horses", "snapshots", "requests", "horse_profiles", "horse_parties", "horse_parents")},
         "failed_jobs": [dict(row) for row in db.execute(
             "SELECT path,last_error FROM jobs WHERE status='failed' ORDER BY path LIMIT 20")],
     }
+
+
+def enqueue_profile(db, value, remaining=2, priority=110, refresh=False):
+    value = horse_id(value)
+    if not 0 <= remaining <= 2:
+        raise ValueError('Collect at most two ancestor generations per root')
+    path = profile_path(value)
+    added = enqueue(db, path, 'profile', {'id': value, 'remaining': remaining}, priority, refresh)
+    existing = db.execute('SELECT context,status FROM jobs WHERE path=?', (path,)).fetchone()
+    context = json.loads(existing['context'])
+    if remaining > context.get('remaining', 0):
+        context['remaining'] = remaining
+        db.execute('UPDATE jobs SET context=? WHERE path=?', (encode(context), path))
+    # Already collected ancestors can be reused without requesting their profile again.
+    # Remaining depth strictly decreases, so shared ancestors and cycles terminate.
+    if existing['status'] == 'done':
+        added += discover_parents(db, value, remaining, priority)
+    return added
+
+
+def discover_parents(db, value, remaining, priority):
+    if remaining <= 0:
+        return 0
+    return sum(enqueue_profile(db, row[0], remaining - 1, priority)
+               for row in db.execute('SELECT parent_id FROM horse_parents WHERE horse_id=? AND parent_id IS NOT NULL', (value,)).fetchall())
+
+
+def seed_profiles(db, limit=10, generations=2, priority=110):
+    if not 1 <= limit <= 100 or not 0 <= generations <= 2:
+        raise ValueError('Use 1–100 roots and 0–2 ancestor generations')
+    # Only race participants seed new roots; ancestor stubs never grow an unbounded tree.
+    roots = db.execute("""SELECT e.horse_id FROM entries e
+        WHERE NOT EXISTS (SELECT 1 FROM jobs j WHERE j.path='/horse/'||e.horse_id)
+        GROUP BY e.horse_id ORDER BY max(e.date) DESC,e.horse_id LIMIT ?""", (limit,)).fetchall()
+    return sum(enqueue_profile(db, row[0], generations, priority) for row in roots)

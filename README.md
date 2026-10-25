@@ -34,7 +34,7 @@ worker, 15 seconds between requests, 25 requests per run and 500 per UTC day.
 
 Read [collection operations](docs/collection.md) before expanding collection,
 including the recorded Hippos robots restriction and persistent stop behaviour.
-The local database is ignored by Git. This workspace has a bounded daily chat
+The local database is ignored by Git. This workspace has a bounded scheduled chat
 automation; see [the active policy and checkpoint](docs/backfill.md). Cloning the
 repository does not install that automation.
 
@@ -47,7 +47,8 @@ node --test tests/ui.test.mjs
 ```
 
 Node.js is only needed to run the frontend logic tests. See [UI and verification](docs/ui.md).
-Veikkaus, weather integration and predictions are planned, not implemented.
+[Veikkaus Toto enrichment](docs/toto.md) is available for explicitly selected races.
+Weather integration and prediction models remain planned.
 The software licence does not grant rights to the upstream datasets.
 
 [Latest product changes and verification](docs/product-improvements-2026-10-22.md)

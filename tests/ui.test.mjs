@@ -1,7 +1,44 @@
 import { loadSaved, toggleSaved } from '../hippos_analyst/web/saved.mjs';
+import { personReference, personReturnRoute, returnContext, sameView } from '../hippos_analyst/web/model.mjs';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { coverageState, hasResult, isWinner, historyStats, resultText, kilometerTime, splitStarts, orderEntries, localDay, addDays, route, parseRoute, dateRange, escapeHtml, calendarSelection, calendarParams, calendarPage, raceOrder, withRaceOrder, horseReturnRoute } from '../hippos_analyst/web/model.mjs';
+
+test('selection, filtering and paging preserve the view; opening another entity does not', () => {
+  const same = (a,b) => sameView(parseRoute(a),parseRoute(b));
+  assert.equal(same('#/calendar?day=2026-10-25&course=KU&number=1', '#/calendar?day=2026-10-24&course=P&number=21'),true);
+  assert.equal(same('#/calendar', '#/calendar?from=2026-09-01&to=2026-09-30'),true);
+  assert.equal(same('#/race?date=2026-10-25&track=KU&number=1', '#/race?date=2026-10-25&track=KU&number=21'),true);
+  assert.equal(same('#/race?date=2026-10-25&track=KU', '#/race?date=2026-10-24&track=P'),false);
+  assert.equal(same('#/people?role=driver', '#/people?role=trainer&q=Korpi&offset=30'),true);
+  assert.equal(same('#/person?role=trainer&id=123', '#/person?role=trainer&id=123&period=history&offset=30'),true);
+  assert.equal(same('#/person?role=trainer&id=123', '#/person?role=driver&id=123'),false);
+  assert.equal(same('#/horse?id=123', '#/horse?id=456'),false);
+  assert.equal(same('#/horse?id=123', '#/horse?id=123&offspring_offset=30'),true);
+  assert.equal(same('#/party?role=owner&id=abc', '#/party?role=breeder&id=abc'),false);
+  assert.equal(same('#/horses?q=Combo', '#/horses?q=Combo&offset=30'),true);
+  assert.equal(sameView(undefined,parseRoute('#/calendar')),false);
+  assert.equal(same('#/horses', '#/calendar'),false);
+});
+
+test('people use role and exact string ID, never a name-based match', () => {
+  const entry = {driverId:'8422289643061284860',driverName:'Nimi',trainerName:'Nimi'};
+  assert.deepEqual(personReference(entry, 'driver'), {role:'driver',id:entry.driverId});
+  assert.equal(personReference(entry, 'trainer'), null);
+  assert.equal(personReference({driverId:'0'}, 'driver'), null);
+  assert.equal(personReference({ownerId:'123'}, 'owner'), null);
+});
+
+test('people, horse and race navigation retain search, role, period and page', () => {
+  const list = route('people', {role:'trainer', q:'Ääni', offset:'30'});
+  assert.deepEqual(personReturnRoute(list, 'trainer'), parseRoute(list));
+  const profile = route('person', {role:'trainer',id:'123',period:'history',offset:'30',returnTo:list});
+  assert.deepEqual(horseReturnRoute(profile), parseRoute(profile));
+  assert.deepEqual(personReturnRoute(profile, 'driver'), parseRoute(profile));
+  for (const invalid of ['https://example.com', 'javascript:alert(1)', '#/unknown', undefined]) {
+    assert.deepEqual(personReturnRoute(invalid, 'driver'), {name:'people',params:{role:'driver'}});
+  }
+});
 
 test('horse upcoming entries stay separate from past form and missing times stay missing', () => {
   const starts = [
@@ -44,9 +81,28 @@ test('horse return route restores Finnish search and page without allowing exter
   const origin = route('horses', { q:'Ääni & ääni', offset:'30' });
   const profile = parseRoute(route('horse', { id:'7616196635396808820', returnTo:origin }));
   assert.deepEqual(horseReturnRoute(profile.params.returnTo), { name:'horses', params:{q:'Ääni & ääni',offset:'30'} });
-  for (const invalid of [undefined, 'https://example.com', 'javascript:alert(1)', '//example.com', '#/horse?id=1']) {
+  for (const invalid of [undefined, 'https://example.com', 'javascript:alert(1)', '//example.com', '#/unknown?id=1']) {
     assert.deepEqual(horseReturnRoute(invalid), {name:'horses',params:{}});
   }
+});
+
+test('pedigree and owner horse links preserve internal return context', () => {
+  for (const origin of [route('horse',{id:'123',offspring_offset:'30'}), route('party',{role:'owner',id:'a'.repeat(64),offset:'30'})]) {
+    assert.deepEqual(horseReturnRoute(origin), parseRoute(origin));
+    assert.deepEqual(personReturnRoute(origin,'trainer'),parseRoute(origin));
+  }
+});
+
+test('repeated family navigation bounds nested return URLs without losing the immediate page', () => {
+  let previous = route('people',{role:'owner',q:'Ääni',offset:'30'});
+  for (let n=0;n<50;n++) {
+    const current = route('horse',{id:String(n),offspring_offset:'30',returnTo:returnContext(previous)});
+    assert.equal(parseRoute(parseRoute(current).params.returnTo).name,parseRoute(previous).name);
+    assert.ok(current.length<2000);
+    previous=current;
+  }
+  const origin = route('party',{id:'a'.repeat(64),role:'owner',offset:'30'});
+  assert.equal(returnContext(origin),origin);
 });
 
 test('calendar and race origins stay available from a horse profile', () => {
@@ -153,4 +209,36 @@ test('coverage never calls an empty race list a collected field', () => {
   assert.equal(coverageState(day), 'emptyRaceLists');
   assert.equal(coverageState({...day, races:2, fields:1}), 'partialCollection');
   assert.equal(coverageState({...day, races:2, fields:2}), 'completeCollection');
+});
+
+import { quotedOdds, runnerMarket, equipmentCodes } from '../hippos_analyst/web/model.mjs';
+
+test('odds distinguish missing quotes, source units and matched identities', () => {
+  for (const value of [null, undefined, '', '-', 0, '0', true, 'NaN', -1, Infinity]) assert.equal(quotedOdds(value),null);
+  assert.equal(quotedOdds('2.98'),2.98);
+  assert.equal(quotedOdds(1),1);
+  const entry={horseId:'1234567890123456789',programNumber:'7',winOdds:'2.98',absent:false};
+  const toto={match_status:'matched',runners:[{horse_id:entry.horseId,startNumber:'7',scratched:false}],observations:[
+    {observed_at:100,phase:'before_scheduled_start',data:{updated:90,odds:[{number:'7',horse_id:entry.horseId,probable:1009}]}}
+  ]};
+  assert.equal(runnerMarket(entry,toto).value,10.09);
+  assert.equal(runnerMarket(entry,toto).source,'Veikkaus');
+  assert.equal(runnerMarket(entry,toto).history[0].observedAt,100);
+  toto.observations[0].data.odds[0].probable=0;
+  assert.equal(runnerMarket(entry,toto).value,null); // Never silently fall back to stale Hippos odds.
+  toto.observations[0].data.odds[0].probable=null; // Normalized omitted quote for a scratched runner.
+  toto.runners[0].scratched=true;
+  assert.equal(runnerMarket(entry,toto).value,null);
+  assert.equal(runnerMarket(entry,toto).source,'Veikkaus');
+  toto.match_status='unmatched';
+  assert.equal(runnerMarket(entry,toto).source,'Hippos');
+  assert.equal(runnerMarket(entry,toto).value,2.98);
+  assert.equal(runnerMarket({...entry,absent:true},null).value,null);
+  toto.match_status='matched';toto.runners[0].horse_id='other';
+  assert.equal(runnerMarket(entry,toto).source,'Hippos');
+});
+
+test('equipment preserves unknown codes instead of claiming no shoes or no sulky', () => {
+  assert.deepEqual(equipmentCodes({shoesFront:'K',shoesBack:'E',americanSulkyKEX:'K'}),{front:true,rear:false,american:true});
+  assert.deepEqual(equipmentCodes({shoesFront:'X',shoesBack:null,americanSulkyKEX:'new'}),{front:null,rear:null,american:null});
 });

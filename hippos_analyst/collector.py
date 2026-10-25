@@ -8,7 +8,7 @@ from datetime import datetime, timezone
 from email.utils import parsedate_to_datetime
 from pathlib import Path
 
-from . import api, store
+from . import api, store, toto
 
 
 @contextmanager
@@ -60,7 +60,16 @@ def pause(db, reason, until=0):
 
 
 def run(db, *, max_requests=25, delay=15, daily_budget=500,
-        fetch=api.fetch, clock=time.time, sleep=time.sleep, emit=print):
+        fetch=None, clock=time.time, sleep=time.sleep, emit=print, provider='hippos', queue='all'):
+    if provider not in ('hippos', 'toto'):
+        raise ValueError('Unknown collection provider')
+    if queue not in ('all','refresh','profiles','history') or (provider=='toto' and queue!='all'):
+        raise ValueError('Invalid collection queue')
+    queue_filter = {'all':'1', 'refresh':"kind IN ('calendar','races','runners') AND json_extract(context,'$.refresh_after') IS NOT NULL",
+                    'profiles':"kind='profile'", 'history':"kind IN ('calendar','races','runners') AND json_extract(context,'$.refresh_after') IS NULL"}[queue]
+    if provider == 'toto' and (delay < toto.MIN_DELAY or daily_budget > 200 or max_requests > 20):
+        raise ValueError('Toto requires at least 60-second spacing, at most 20 requests/run and 200 combined requests/day')
+    fetch = fetch or (toto.fetch if provider == 'toto' else api.fetch)
     if not 1 <= max_requests <= 500 or not 1 <= daily_budget <= 500 or not 10 <= delay <= 3600:
         raise ValueError("Use 1–500 requests/budget and a 10–3600 second delay")
     completed = 0
@@ -73,8 +82,13 @@ def run(db, *, max_requests=25, delay=15, daily_budget=500,
         if control['paused_until'] > now:
             emit('Service cooldown has not elapsed; no request sent.')
             return 'retry'
+        if db.execute("SELECT 1 FROM jobs WHERE status='failed' LIMIT 1").fetchone():
+            emit('Failed jobs require investigation; no request sent.')
+            return 'failed'
         job = db.execute("SELECT * FROM jobs WHERE status='pending' AND next_attempt<=? "
-                         "ORDER BY priority,date(json_extract(context,'$.date')) DESC,path LIMIT 1", (now,)).fetchone()
+                         "AND (path LIKE 'toto:%')=? AND (" + queue_filter + ") "
+                         "ORDER BY priority,date(json_extract(context,'$.date')) DESC,path LIMIT 1",
+                         (now, provider == 'toto')).fetchone()
         if job is None:
             emit(f"No jobs due; completed {completed} requests in this run.")
             return "idle"
@@ -93,6 +107,11 @@ def run(db, *, max_requests=25, delay=15, daily_budget=500,
             if used >= daily_budget:
                 emit(f"UTC daily budget reached ({used}/{daily_budget}); no request sent.")
                 return "budget"
+            if provider == 'toto':
+                provider_used = db.execute("SELECT count(*) FROM requests WHERE started_at>=? AND path LIKE 'toto%'", (midnight,)).fetchone()[0]
+                if provider_used >= toto.DAILY_BUDGET:
+                    emit(f'Toto daily budget reached ({provider_used}/{toto.DAILY_BUDGET}); no request sent.')
+                    return 'budget'
             if db.execute("SELECT paused_reason FROM control WHERE id=1").fetchone()[0]:
                 return "paused"
             request_id = db.execute("INSERT INTO requests(path,started_at) VALUES(?,?)", (job["path"], now)).lastrowid
@@ -104,7 +123,8 @@ def run(db, *, max_requests=25, delay=15, daily_budget=500,
             with db:
                 db.execute("UPDATE requests SET status=?,finished_at=? WHERE id=?", (response.status, clock(), request_id))
             if response.status == 200:
-                records = api.normalize(job["kind"], response.json(), json.loads(job["context"]))
+                normalize = toto.normalize if provider == 'toto' else api.normalize
+                records = normalize(job["kind"], response.json(), json.loads(job["context"]))
                 with db:
                     store.save_response(db, job, records, request_id, clock())
                 completed += 1

@@ -24,8 +24,8 @@ reuse licence or a guarantee that an endpoint will remain available.
 
 ### Observed endpoints
 
-All paths below are relative to the base URL. The first three are implemented.
-Others were observed in browser traffic in the initial investigation.
+All paths below are relative to the base URL. Calendars, race lists, fields and
+horse profiles are implemented. Other paths were observed in browser traffic.
 
 | GET path | Response / purpose |
 | --- | --- |
@@ -40,7 +40,10 @@ Others were observed in browser traffic in the initial investigation.
 | `/advanceCompetition/horse/{id}/competitions/future` | Upcoming advance-payment competitions |
 
 The mobile bundle additionally contains pedigree and offspring endpoint strings;
-those were not validated as live calls and are not implemented.
+those were not validated as live calls and are not implemented. The current
+[pedigree feature](horse-relationships.md) instead follows verified sire/dam IDs
+from `/horse/{id}`, within a two-generation collection bound. Owner/breeder names
+come from this profile; no party IDs were present in the checked responses.
 
 ### Historical schema probe
 
@@ -62,7 +65,10 @@ the importer; they do not establish completeness for all years.
 - Current lifetime totals and comments retrieved after a race are not evidence
   of what was known before that race.
 
-## Veikkaus Toto: promising supplementary source
+## Veikkaus Toto: supplementary source
+
+A bounded importer is now implemented; see [Toto operations and verification](toto.md).
+The assessment below records the evidence before implementation.
 
 [Official API documentation](https://github.com/veikkaus/sport-games-robot)
 describes read-only paths under `https://www.veikkaus.fi/api/toto-info/v1`:
@@ -93,6 +99,44 @@ and provider identity mappings need further investigation before integration.
 The separate [developer portal](https://dev.developer.api.veikkaus.fi/get-started)
 describes approved accounts/API keys; do not assume that is the same access model
 as these older documented public Toto endpoints.
+
+### Integration value assessment — 25 October 2026
+
+Rechecked the official Toto documentation and the current Hippos field allowlists
+and SQLite records. No Veikkaus collection was started during this assessment.
+
+- **Highest distinct value: timestamped market observations.** The documented
+  pool and odds endpoints could support pre-race odds snapshots and a market
+  baseline for prediction experiments. Odds response shape, availability after
+  closure and historical depth still need live validation. Do not assume a
+  historical date endpoint supplies historical odds movements.
+- **Useful secondary value: runner form and race-day reconciliation.** The earlier
+  runner probe found previous starts, driver statistics and equipment. These may
+  fill gaps in our small archive, but their coverage, timestamps and overlap need
+  comparison before import. Faster or more complete updates are not established.
+- **Lower priority: betting-product context.** Documented meeting/pool data covers
+  products and bonus/jackpot information. This is optional race context, with less
+  value for the current calendar/profile experience than richer racing records.
+- **Existing Hippos data should be surfaced first.** Of 3,799 stored entries,
+  2,398 have a non-null `winOdds` value; the other 1,401 have `winOddsStr="-"`.
+  Shoeing and sulky codes are also already stored. Their source-code meanings and
+  odds observation timing need verification before labels or model features are
+  assigned. Stored odds are not a time series or proof of a pre-race observation.
+
+Recommended scope is a small optional enrichment importer for matched Finnish
+meetings, preserving Hippos as the primary archive. Keep provider IDs and
+observation times separate. Match date, mapped track and race number, then verify
+runner identity; never merge horses by name alone. Retain disagreements with
+provenance instead of silently replacing Hippos values. Validate units and an
+explicit field allowlist before storage. Preserve existing stop/budget policies.
+
+For prediction work, collect observations prospectively and enforce a pre-race
+cutoff: later results, final odds and subsequently updated form must not enter an
+earlier prediction's features. Start with a few scheduled observations for selected
+races, rather than continuous broad polling. The official documentation advises
+against odds polling more often than once a minute; that is not a reason to
+increase our existing conservative request budget. Storage/reuse terms remain an
+open integration question. This is a recommendation, not an implemented feature.
 
 ## Other providers
 

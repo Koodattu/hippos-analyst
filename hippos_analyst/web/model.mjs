@@ -22,6 +22,24 @@ export function parseRoute(hash) {
   return { name: name || 'calendar', params: Object.fromEntries(new URLSearchParams(query)) };
 }
 
+// Filtering, paging and race selection update the current view in place.
+// Opening another entity is a new page, even when it shares a route name.
+export function sameView(previous, next) {
+  if (!previous || previous.name !== next.name) return false;
+  const keys = {horse:['id'], person:['id','role'], party:['id','role'],
+    race:['date','track'], meeting:['date','track']}[next.name] || [];
+  return keys.every(key => previous.params[key] === next.params[key]);
+}
+
+export function returnContext(hash, depth = 3) {
+  const {name,params} = parseRoute(hash);
+  if (params.returnTo) {
+    if (depth > 1) params.returnTo = returnContext(params.returnTo, depth - 1);
+    else delete params.returnTo;
+  }
+  return route(name,params);
+}
+
 export function raceOrder(params) {
   return params.order === 'result' ? 'result' : 'program';
 }
@@ -34,9 +52,22 @@ export function withRaceOrder(hash, order) {
 export function horseReturnRoute(returnTo) {
   if (typeof returnTo === 'string' && returnTo.startsWith('#/')) {
     const target = parseRoute(returnTo);
-    if (['horses', 'calendar', 'race', 'saved'].includes(target.name)) return target;
+    if (['horses', 'horse', 'calendar', 'race', 'saved', 'person', 'party'].includes(target.name)) return target;
   }
   return { name: 'horses', params: {} };
+}
+
+export function personReturnRoute(returnTo, role) {
+  if (typeof returnTo === 'string' && returnTo.startsWith('#/')) {
+    const target = parseRoute(returnTo);
+    if (['people', 'person', 'party', 'horse', 'race', 'calendar', 'saved'].includes(target.name)) return target;
+  }
+  return { name: 'people', params: { role } };
+}
+
+export function personReference(entry, role) {
+  const id = String(entry[`${role}Id`] ?? '').trim();
+  return ['driver', 'trainer'].includes(role) && id && id !== '0' ? { role, id } : null;
 }
 
 export function dateRange(params, overview, today) {
@@ -110,4 +141,31 @@ export function coverageState(day) {
   if (!day.meetings) return 'emptyCalendar';
   if (day.missing_lists || day.fields < day.races) return 'partialCollection';
   return day.races ? 'completeCollection' : 'emptyRaceLists';
+}
+
+// Provider observations stay separate; a missing new quote never revives an old one.
+export function quotedOdds(value) {
+  if (typeof value !== 'number' && typeof value !== 'string') return null;
+  if (typeof value === 'string' && !/^\d+(?:\.\d+)?$/.test(value)) return null;
+  const number = Number(value);
+  return Number.isFinite(number) && number >= 1 ? number : null;
+}
+
+export function runnerMarket(entry, toto) {
+  const runner = toto?.match_status === 'matched'
+    ? toto.runners.find(r => r.horse_id === entry.horseId && r.startNumber === String(entry.programNumber)) : null;
+  if (runner && toto.observations.length) {
+    const history = toto.observations.map(observation => {
+      const quote = observation.data.odds.find(r => r.horse_id === entry.horseId && r.number === String(entry.programNumber));
+      return { value: quote && !runner.scratched ? quotedOdds(quote.probable / 100) : null,
+        observedAt: observation.observed_at, sourceAt: observation.data.updated, phase: observation.phase };
+    });
+    return { source:'Veikkaus', value:history[0].value, history, runner };
+  }
+  return { source:'Hippos', value:entry.absent ? null : quotedOdds(entry.winOdds), history:[], runner };
+}
+
+export function equipmentCodes(entry) {
+  const yesNo = value => value === 'K' ? true : value === 'E' ? false : null;
+  return { front:yesNo(entry.shoesFront), rear:yesNo(entry.shoesBack), american:yesNo(entry.americanSulkyKEX) };
 }

@@ -57,6 +57,67 @@ class ArchiveTests(unittest.TestCase):
                 endpoint(Archive(self.db), '/api/saved', {'ids': [ids], 'from': [DAY]})
         self.assertEqual(Archive(self.db).saved([], DAY), {'horses': [], 'missing': []})
 
+    def test_people_search_identity_and_latest_names(self):
+        runners = [{**self.runner, 'programNumber': str(n), 'horseId': str(n),
+                    'driverId': str(n), 'driverName': 'Ääni %' if n < 3 else f'Ohjastaja {n:02}',
+                    'trainerId': '1', 'trainerName': 'Eri roolin nimi'} for n in range(1, 36)]
+        self.save('runners', runners)
+        first = Archive(self.db).people('driver', '', 0)
+        last = Archive(self.db).people('driver', '', 30)
+        self.assertEqual((first['total'], len(first['people']), len(last['people'])), (35, 30, 5))
+        self.assertFalse({p['id'] for p in first['people']} & {p['id'] for p in last['people']})
+        self.assertEqual(Archive(self.db).people('driver', 'ääNI %', 0)['total'], 2)
+        self.assertEqual(Archive(self.db).people('driver', '_', 0)['total'], 0)
+        trainer = Archive(self.db).people('trainer', '', 0)['people'][0]
+        self.assertEqual((trainer['name'], trainer['horses'], trainer['entries']), ('Eri roolin nimi', 35, 35))
+        self.save('runners', [{**runners[0], 'driverName': 'Uusi nimi'}], number='2')
+        self.assertEqual(Archive(self.db).people('driver', 'Uusi', 0)['people'][0]['id'], '1')
+        self.assertEqual(Archive(self.db).people('driver', 'ääNI %', 0)['total'], 1)
+
+    def test_people_visibility_corrections_and_missing_ids(self):
+        self.save('runners', [{**self.runner, 'driverId': '123', 'driverName': 'Nimi'},
+                              {**self.runner, 'programNumber': '8', 'driverName': 'Nimi'}])
+        self.assertEqual(Archive(self.db).people('driver', '', 0)['total'], 1)
+        self.save('races', self.races[1:])
+        self.assertEqual(Archive(self.db).people('driver', '', 0)['total'], 0)
+        with self.assertRaises(LookupError):
+            Archive(self.db).person('driver', '123', DAY)
+        self.save('races', self.races)
+        self.save('runners', [{**self.runner, 'driverId': '456', 'driverName': 'Korjattu'}])
+        self.assertEqual(Archive(self.db).people('driver', '', 0)['people'][0]['id'], '456')
+        self.save('calendar', [])
+        self.assertEqual(Archive(self.db).people('driver', '', 30)['offset'], 0)
+
+    def test_person_results_upcoming_and_bounded_pages(self):
+        rows = [{**self.runner, 'programNumber': str(n), 'horseId': str(n),
+                 'driverId': '123', 'driverName': 'Ohjastaja', 'trainerId': '456',
+                 'trainerName': 'Valmentaja', 'placing': '0'} for n in range(1, 36)]
+        rows.extend([{**rows[0], 'programNumber': '36', 'placing': '1='},
+                     {**rows[0], 'programNumber': '37', 'placing': 'hll'},
+                     {**rows[0], 'programNumber': '38', 'placing': '1', 'absent': True}])
+        self.save('runners', rows)
+        data = Archive(self.db).person('driver', '123', DAY)
+        self.assertEqual(data['summary'], {'entries': 38, 'horses': 35, 'results': 2, 'wins': 1, 'upcoming': 36})
+        self.assertEqual((data['period'], data['total'], len(data['starts'])), ('upcoming', 36, 30))
+        self.assertEqual(data['starts'][0]['data']['trainerId'], '456')
+        last = Archive(self.db).person('driver', '123', DAY, 'upcoming', 30)
+        self.assertEqual(len(last['starts']), 6)
+        history = Archive(self.db).person('driver', '123', DAY, 'history')
+        self.assertEqual([s['data']['placing'] for s in history['starts']], ['1=', 'hll'])
+        past = Archive(self.db).person('driver', '123', '2026-10-24')
+        self.assertEqual((past['period'], past['total']), ('history', 38))
+        with self.assertRaises(LookupError):
+            Archive(self.db).person('trainer', '123', DAY)
+
+    def test_people_endpoint_validation(self):
+        for path, params in [('/api/people', {'role': ['owner']}),
+                             ('/api/people', {'role': ['driver'], 'offset': ['-1']}),
+                             ('/api/people', {'role': ['driver'], 'q': ['a' * 201]}),
+                             ('/api/person', {'role': ['trainer'], 'id': ['1'], 'from': [DAY], 'period': ['invalid']}),
+                             ('/api/person', {'role': ['driver'], 'id': ['1'], 'from': ['bad']})]:
+            with self.subTest(params=params), self.assertRaises(ValueError):
+                endpoint(Archive(self.db), path, params)
+
     def test_coverage_distinguishes_missing_empty_partial_and_complete_days(self):
         self.save('runners', [self.runner])
         empty_day = '2026-10-24'

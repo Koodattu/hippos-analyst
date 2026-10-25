@@ -18,6 +18,9 @@ body {
   margin:0;
 }
 
+html { scrollbar-gutter: stable; }
+main { overflow-anchor: none; }
+
 a {
   color:inherit;
   text-decoration:none;
@@ -111,7 +114,7 @@ h1:focus {
   font-weight:600;
 }
 
-.status-dot,.local-pill i,.coverage-dot {
+.status-dot,.coverage-dot {
   display:inline-block;
   width:7px;
   height:7px;
@@ -886,16 +889,6 @@ td small {
   color:var(--muted);
 }
 
-footer {
-  display:flex;
-  justify-content:space-between;
-  gap:15px;
-  padding:22px 46px;
-  border-top:1px solid var(--border);
-  font-size:10px;
-  color:#73816c;
-  line-height:1.6;
-}
 
 @media(min-width:1600px) {
   main {
@@ -923,9 +916,6 @@ footer {
   }
   .filters input {
     width:150px;
-  }
-  footer {
-    padding:22px 26px;
   }
 }
 
@@ -1127,11 +1117,6 @@ footer {
   .empty h2 {
     font-size:19px;
   }
-  footer {
-    padding:20px 22px;
-    flex-direction:column;
-    gap:3px;
-  }
   .freshness {
     font-size:10px;
   }
@@ -1188,32 +1173,8 @@ footer {
   gap:8px;
 }
 
-.local-pill {
-  display:flex;
-  align-items:center;
-  margin-left:auto;
-  font-size:11px;
-  white-space:nowrap;
-  color:#d4e1d4;
-}
 
-.local-pill i {
-  display:inline-block;
-  width:6px;
-  height:6px;
-  border-radius:50%;
-  background:#a9cdab;
-  margin-right:7px;
-}
 
-#refresh-view {
-  font-size:11px;
-  min-height:34px;
-  padding:7px 11px;
-  background:transparent;
-  color:#e0e9dc;
-  border-color:#668371;
-}
 
 main {
   max-width:2000px;
@@ -1235,18 +1196,7 @@ h1 {
   font-size:13px;
 }
 
-.archive-summary {
-  display:flex;
-  flex-direction:column;
-  align-items:flex-end;
-  gap:8px;
-  font-size:12px;
-  color:var(--muted);
-}
 
-.archive-summary strong {
-  font-weight:500;
-}
 
 .filters {
   padding:12px 15px;
@@ -1297,11 +1247,6 @@ h1 {
 }
 
 .meeting-browser {
-  position:sticky;
-  top:16px;
-  max-height:calc(100dvh - 32px);
-  overflow:auto;
-  scrollbar-width:thin;
   padding-right:4px;
 }
 
@@ -1395,12 +1340,6 @@ h1 {
   min-width:170px;
 }
 
-.form-note {
-  margin:0;
-  padding:0 20px 12px;
-  font-size:12px;
-  color:var(--muted);
-}
 
 .meeting-card {
   background:#fff;
@@ -1696,9 +1635,6 @@ th:last-child, td:last-child {
   white-space:nowrap;
 }
 
-footer {
-  padding:18px 24px;
-}
 
 @media (min-width:1600px) {
   .calendar-workspace {
@@ -1724,9 +1660,6 @@ footer {
     gap:20px;
   }
   .meeting-browser {
-    position:static;
-    max-height:none;
-    overflow:visible;
     padding:0;
   }
   .meeting-list {
@@ -1774,13 +1707,6 @@ footer {
   .nav-link.active {
     background:#f5f6f2;
   }
-  .local-pill {
-    display:none;
-  }
-  #refresh-view {
-    margin-left:auto;
-    font-size:10px;
-  }
   main {
     padding:20px 16px;
   }
@@ -1791,11 +1717,6 @@ footer {
   }
   h1 {
     font-size:26px;
-  }
-  .archive-summary {
-    align-items:flex-start;
-    gap:5px;
-    font-size:11px;
   }
   .filters {
     display:grid;
@@ -1848,11 +1769,47 @@ footer {
   .preview-footer {
     align-items:flex-start;
   }
-  footer {
-    padding:18px 16px;
-  }
 }
 .saved-horse { margin: 20px 0 32px; }
+.horse-background { display: grid; grid-template-columns: minmax(220px, 1fr) minmax(0, 2fr); gap: 28px; margin: 24px 0 32px; padding: 20px; border: 1px solid var(--border); border-radius: 8px; background: #fff; }
+.horse-background h2 { margin: 0 0 12px; }
+.profile-facts dl { display: grid; grid-template-columns: auto minmax(0,1fr); gap: 12px 16px; }
+.profile-facts dt { color: var(--muted); }
+.profile-facts dd { margin: 0; overflow-wrap: anywhere; }
+.profile-facts small { display: block; color: var(--muted); }
+.pedigree-branches { display: grid; grid-template-columns: repeat(2,minmax(0,1fr)); gap: 12px; list-style: none; padding: 0; margin: 12px 0 0; }
+.pedigree-branches li { border-left: 2px solid var(--border); padding: 6px 0 6px 12px; min-width: 0; overflow-wrap: anywhere; }
+.pedigree-branches .pedigree-branches { grid-template-columns: repeat(2,minmax(0,1fr)); }
+.pedigree-branches .pedigree-branches .pedigree-branches { grid-template-columns: 1fr; }
+.pedigree-role, .pedigree-branches small { display: block; color: var(--muted); font-size: 12px; margin-bottom: 4px; }
+.offspring-section { margin: 32px 0; }
+.party-directory table { min-width: 0; table-layout: fixed; }
+.party-directory th:first-child { width: 80%; }
+.party-directory td { white-space: normal; overflow-wrap: anywhere; }
+@media (max-width:900px) { .horse-background { grid-template-columns: 1fr; } }
+@media (max-width:600px) {
+  .horse-background { padding: 16px; }
+  .profile-facts dl, .pedigree-section > .pedigree-branches { grid-template-columns: 1fr; }
+  .pedigree-branches .pedigree-branches { grid-template-columns: 1fr; }
+  .profile-facts dl { gap: 5px; }
+  .profile-facts dd { margin-bottom: 12px; }
+  .party-directory th, .party-directory td { padding: 12px 8px; }
+}
+.people-tabs { display: flex; flex-wrap: wrap; width: fit-content; margin: 16px 0; }
+.person-link { display: inline-block; text-decoration: underline; text-underline-offset: 3px; }
+.people-directory table { min-width: 0; table-layout: fixed; }
+.people-directory th:first-child { width: 60%; }
+.people-directory th, .people-directory td { white-space: normal; overflow-wrap: anywhere; }
+.person-starts table { min-width: 620px; }
+.person-starts td:nth-child(2), .person-starts td:nth-child(3) { white-space: normal; min-width: 180px; }
+.person-stats .stats { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+@media (max-width:600px) {
+  .person-stats .stats { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px 0; }
+  .person-stats .stat:nth-child(odd) { border-left: 0; padding-left: 0; }
+  .app-header .nav-link:last-child { grid-column: 1 / -1; }
+  .people-directory th:first-child { width: 52%; }
+  .people-directory th, .people-directory td { padding: 12px 8px; }
+}
 .saved-horse > p, .muted { color: var(--muted); }
 #save-feedback:not(:empty) { margin: 12px 0; padding: 12px 16px; border: 1px solid #ccd9c3; background: #eef3e8; }
 .collection-status { margin: 20px 0; padding: 16px; background: #eef3e8; border: 1px solid #ccd9c3; line-height: 1.6; }
@@ -1863,4 +1820,69 @@ footer {
 @media (max-width:600px) {
   .upcoming-table th:first-child { width: 100px; }
   .upcoming-table td, .upcoming-table th { padding: 12px 8px; }
+}
+
+/* Keep navigation steady; race content grows with its rows and disclosures. */
+.selected-heading { margin-bottom: 8px; }
+.selected-heading > div { min-width: 0; }
+.selected-heading h2, .selected-heading p { overflow-wrap: anywhere; }
+.race-tabs { flex-wrap: nowrap; }
+.race-tabs a { flex-shrink: 0; }
+.table-toolbar label { margin-left: auto; }
+.data-note { color: var(--muted); font-size: 12px; margin: 8px 0 16px; }
+.data-note summary { cursor: pointer; width: fit-content; }
+.data-note p { max-width: 75ch; line-height: 1.6; }
+.table-footer .data-note { margin: 0; }
+.table-footer .data-note[open] { grid-column: 1 / -1; }
+.table-footer .data-note[open] p { margin-bottom: 0; }
+.selected-race > .empty { margin: 0; }
+@media (max-width: 1000px) {
+  .meeting-list { align-items: stretch; }
+}
+@media (max-width:600px) {
+  .app-header nav { display: flex; flex-wrap: nowrap; overflow-x: auto; gap: 4px; }
+  .app-header .nav-link { flex-shrink: 0; white-space: nowrap; }
+  .table-footer { font-size: 11px; }
+}
+
+.odds-cell { min-width: 96px; }
+.odds-cell strong { font-variant-numeric: tabular-nums; font-weight: 650; }
+.equipment { color: var(--muted); font-size: 11px; white-space: normal; }
+.scratch-note { color: #8c3c25; }
+.race-detail .table-footer { display: grid; grid-template-columns: 1fr auto; gap: 4px 12px; min-height: 76px; align-items: center; }
+.toto-status { grid-column: 1 / -1; grid-row: 2; font-size: 11px; }
+.odds-history { padding: 12px 0; }
+.odds-history h3 { margin: 0 0 8px; font-size: 14px; }
+.odds-history ul { padding: 0; margin: 0; list-style: none; }
+.odds-history li { margin: 8px 0; white-space: normal; }
+.odds-history strong { display: inline-block; min-width: 56px; font-variant-numeric: tabular-nums; }
+.odds-history small { display: block; }
+.toto-coverage { margin: 20px 0; }
+
+/* Keep controls compact so the race field is the primary content. */
+main:has(#calendar-filter) { padding-top: 12px; }
+#calendar-filter { padding: 8px 12px; gap: 8px 12px; }
+#calendar-filter .segmented { margin-right: 12px; }
+.calendar-workspace { margin-top: 8px; }
+.race-tabs { padding-bottom: 5px; margin-bottom: 6px; }
+.race-detail { display: grid; grid-template-columns: minmax(0, 1fr) auto; }
+.race-heading { padding: 10px 16px; gap: 12px; }
+.race-heading > div { display: flex; align-items: baseline; flex-wrap: wrap; gap: 4px 14px; }
+.race-heading h2 { font-size: 21px; }
+.race-heading p { margin: 0; }
+.race-detail .table-toolbar { border: 0; padding: 10px 16px 10px 0; }
+#race-table, .race-detail .table-footer { grid-column: 1 / -1; min-width: 0; }
+.meeting-select { padding: 10px 12px 7px; }
+.meeting-card h3 { margin-top: 6px; }
+.meeting-name { margin-bottom: 6px; }
+@media (max-width: 1000px) {
+  .race-heading > div { display: block; }
+  .race-heading p { margin-top: 4px; }
+}
+@media (max-width: 600px) {
+  #calendar-filter .segmented { margin-right: 0; }
+  .race-detail { display: block; }
+  .race-heading { padding: 10px 12px 6px; }
+  .race-detail .table-toolbar { padding: 0 12px 8px; }
+  .race-detail .table-toolbar label { flex-direction: row; align-items: center; }
 }

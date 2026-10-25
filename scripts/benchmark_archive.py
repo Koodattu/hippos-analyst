@@ -44,6 +44,10 @@ def main():
                     runners = [{**race, 'programNumber': str(n),
                                 'horseId': str(i * 100 + (int(number) - 1) * 10 + n),
                                 'horseName': f'Testihevonen {i:04}-{number}-{n}',
+                                'driverId': str(1 + (i * 100 + int(number) * 10 + n) % 500),
+                                'driverName': f'Testiohjastaja {1 + (i * 100 + int(number) * 10 + n) % 500:03}',
+                                'trainerId': str(1 + (i * 100 + int(number) * 10 + n) % 2000),
+                                'trainerName': f'Testivalmentaja {1 + (i * 100 + int(number) * 10 + n) % 2000:04}',
                                 'absent': False, 'placing': str(n)} for n in range(1, 11)]
                     save('runners', api.runners_path(day, 'H', number),
                          {**context, 'number': number}, runners)
@@ -57,6 +61,10 @@ def main():
             'horses_first_page': lambda a: a.horses('', 0),
             'horses_last_page': lambda a: a.horses('', 99990),
             'horse_search': lambda a: a.horses('0999-', 0),
+            'drivers': lambda a: a.people('driver'),
+            'trainers': lambda a: a.people('trainer'),
+            'driver_history': lambda a: a.person('driver', '1', '2026-10-22', 'history', 30),
+            'trainer_history': lambda a: a.person('trainer', '1', '2026-10-22', 'history', 30),
         }
         for name, read in reads.items():
             samples = []
@@ -76,6 +84,15 @@ def main():
                 assert result['total'] == 1 and len(result['meetings']) == 1
             elif name == 'race':
                 assert len(result['entries']) == 10 and result['entries'][0]['horseId'] == '99901'
+            elif name in ('drivers', 'trainers'):
+                assert result['total'] == (500 if name == 'drivers' else 2000)
+                assert len(result['people']) == 30
+            elif name in ('driver_history', 'trainer_history'):
+                total = 200 if name == 'driver_history' else 50
+                assert result['summary']['entries'] == result['total'] == total
+                assert result['offset'] == 30 and len(result['starts']) == min(30, total - 30)
+                role = result['person']['role']
+                assert all(s['data'][role + 'Id'] == '1' for s in result['starts'])
             else:
                 assert result['total'] == (100 if name == 'horse_search' else 100000)
                 assert len(result['horses']) == (10 if name == 'horses_last_page' else 30)

@@ -5,8 +5,13 @@ Run commands from the repository root with Python 3.11+. No installation needed.
 `data/hippos.sqlite3`, excluded from Git.
 
 The current [backfill policy](backfill.md) uses explicit 30-second spacing,
-200 attempts per UTC day and a bounded daily chat automation. The CLI defaults
+200 attempts per UTC day and four bounded maintenance wake-ups per day. The CLI defaults
 below remain available; historical run notes describe their settings at that time.
+
+Optional [Veikkaus Toto enrichment](toto.md) uses `seed-toto` and `run-toto`.
+It shares the same lock, request ledger and global stops, with a 60-second minimum
+and 40-request Toto daily cap within the combined 200-request operating budget.
+The regular `run` command continues to process only Hippos jobs.
 
 ## Small first run
 
@@ -78,8 +83,9 @@ Never automatically resume access refusals or provider objections.
 1. Finish a small historical day and compare meeting/race/participant counts.
 2. Seed a month; measure request volume, storage and missing-field rates.
 3. Expand to the previous 12 months, then earlier years in bounded batches.
-4. Discover horses through race entries. Add profile/history endpoints only when
-   a user feature or a modelling question needs information not already collected.
+4. Discover horses through race entries. Selected profiles now add owners,
+   breeders and bounded pedigree links; see [horse relationships](horse-relationships.md).
+   Other profile/history endpoints still require a verified use and contract.
 
 ```powershell
 python -m hippos_analyst seed --from 2025-10-01 --to 2025-10-31
@@ -106,6 +112,12 @@ At 500 requests/day, 20,000 requests need at least 40 days, plus ongoing updates
 and retries. This is arithmetic, not an estimate of the unmeasured Hippos archive.
 
 ## Verification
+
+Profile seeding is offline and bounded: `seed-profiles --limit 5 --generations 2
+--priority 90`. Explicit `--id` selection must reference a horse already in this
+archive; `--refresh` is allowed only with that explicit selection. Profile jobs
+use the ordinary collector and its shared limits, never a separate request budget.
+The daily schedule's profile policy and current allowance are in [backfill](backfill.md).
 
 ```powershell
 python -m unittest discover -s tests -v
@@ -191,3 +203,50 @@ synthetically reproduced 503 Retry-After cooldown defect. That defect and the
 other seven findings are now [fixed and verified](audit-fixes-2026-10-22.md).
 No live provider error or cooldown occurred in this sample. The fix pass did not
 start a new collection run; 19 jobs remain queued.
+
+
+## Scheduled maintenance (25 October 2026)
+
+`python -u -m hippos_analyst maintain --date 2026-10-25 --max-requests 40`
+
+Pass the current **Europe/Helsinki** date; the example date is not a permanent
+schedule argument. The command holds the existing worker lock through planning
+and all three collection phases. It has no background subprocesses and does not
+clear pauses, reset budgets or retry failed jobs. Its limits are fixed at 30-second
+spacing and 200 combined attempts per UTC day. Any failed job now blocks both
+ordinary providers and maintenance until investigated.
+
+Each wake-up permits at most 20 refresh, 10 profile and 10 historical requests.
+Unused shares are not borrowed, so maintenance cannot consume extra requests just
+because one queue is empty. `--max-requests` may be 4–40; smaller runs divide their
+allowance in the same 1/2, 1/4, remainder proportions. A provider stop, schema
+error, failure, cooldown or daily-budget stop prevents later phases from running.
+
+Refresh planning covers Helsinki today minus three days through today plus seven.
+Calendars, known race lists and fields are eligible when their last successful
+observation is at least 24 hours old. Children discovered by a refreshed parent
+inherit this age check. Unfinished jobs keep their attempts and Retry-After;
+failed jobs are never reset. Old snapshots remain available when current fields
+change. This updates scratches, entrants, times and published results, subject
+to queue capacity. It is not a live feed or a guaranteed 24-hour completion SLA.
+Corrections published after the recent three-day window are not automatically
+revisited by this policy.
+
+At most five new known participant roots are seeded per Helsinki day, only after
+pending profiles finish. A persisted `maintenance_state.profile_seed_day` prevents
+duplicate batches across restarts. Two ancestor generations remain the maximum;
+completed profiles are not automatically refreshed and ancestor stubs do not
+become new roots.
+
+History gets its own request share. Starting from October 2026, planning fills
+missing calendar days, then walks backward one month at a time. Every discovered
+calendar/race/field must have a successful observation before that month establishes
+the frontier. A pending refresh does not erase earlier coverage. The isolated
+October 2025 sample cannot skip intervening months. Pending historical work blocks
+another month's seeds; twelve consecutive observed empty months stop expansion
+for investigation. Profile completion never establishes racing-history coverage.
+
+The existing chat automation uses this command at 08:00, 12:00, 16:00 and 20:00
+Europe/Helsinki. It remains local: the computer and Codex app must be running and
+network approval must be available. No separate Toto polling or new Toto targets
+are scheduled by `maintain`; explicit bounded Toto jobs use `run-toto`.

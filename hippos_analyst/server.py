@@ -7,7 +7,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from urllib.parse import parse_qs, urlsplit
 
-from . import api
+from . import api, toto
 
 WEB = Path(__file__).with_name("web")
 ASSETS = {"/": ("index.html", "text/html"), "/app.mjs": ("app.mjs", "text/javascript"),
@@ -90,6 +90,7 @@ class Archive:
                 "pending": self.db.execute("SELECT count(*) FROM jobs WHERE status='pending'").fetchone()[0],
                 "failed": self.db.execute("SELECT count(*) FROM jobs WHERE status='failed'").fetchone()[0],
                 "paused": bool(self.db.execute("SELECT paused_reason FROM control WHERE id=1").fetchone()[0]),
+                "toto": toto.coverage(self.db),
                 "now": datetime.now(timezone.utc).isoformat()}
 
     def calendar(self, start, end, track="", offset=0):
@@ -147,7 +148,8 @@ class Archive:
         entries = [json.loads(row[0]) for row in self.db.execute("SELECT data FROM entries WHERE date=? AND track=? AND race_number=? ORDER BY CAST(program_number AS INTEGER),program_number", (day, track, number))]
         form = {entry['horseId']: self.horse_starts(entry['horseId'], before=day, limit=5)
                 for entry in entries}
-        return {**meeting, "race": race, "entries": entries, "form": form}
+        return {**meeting, "race": race, "entries": entries, "form": form,
+                "toto": toto.read_race(self.db, day, track, number)}
 
     def horses(self, query, offset):
         # Python casefold handles Finnish letters; SQLite's built-in LIKE does not.
@@ -158,11 +160,130 @@ class Archive:
         rows = self.db.execute(f"SELECT * FROM horses {where} ORDER BY casefold(name),id LIMIT 30 OFFSET ?", (term, offset))
         return {"horses": [dict(row) for row in rows], "total": count, "offset": offset, "limit": 30}
 
-    def horse(self, horse_id):
+    def horse(self, horse_id, offspring_offset=0):
         row = self.db.execute("SELECT * FROM horses WHERE id=?", (horse_id,)).fetchone()
         if row is None:
             raise LookupError("Horse not found")
-        return {"horse": dict(row), "starts": self.horse_starts(horse_id)}
+        if not 0 <= offspring_offset <= 10_000_000:
+            raise ValueError('Invalid page')
+        profile = self.db.execute('SELECT data,fetched_at FROM horse_profiles WHERE horse_id=?', (horse_id,)).fetchone()
+        job = self.db.execute('SELECT status FROM jobs WHERE path=?', (api.profile_path(horse_id),)).fetchone()
+        parties = [dict(p) for p in self.db.execute('SELECT role,label,party_key AS id FROM horse_parties WHERE horse_id=? ORDER BY role', (horse_id,))]
+        children = ' FROM horses h JOIN horse_profiles p ON p.horse_id=h.id WHERE EXISTS (SELECT 1 FROM horse_parents r WHERE r.horse_id=h.id AND r.parent_id=?)'
+        total = self.db.execute('SELECT count(*)' + children, (horse_id,)).fetchone()[0]
+        offspring_offset = min(offspring_offset, max(0, (total-1)//30*30))
+        offspring = [dict(h) for h in self.db.execute('SELECT h.*,p.fetched_at AS relationship_fetched_at' + children + ' ORDER BY h.name,h.id LIMIT 30 OFFSET ?', (horse_id, offspring_offset))]
+        return {"horse": dict(row), "starts": self.horse_starts(horse_id),
+                'profile': {'data':json.loads(profile['data']), 'fetched_at':profile['fetched_at']} if profile else None,
+                'profile_status': job['status'] if job else 'not_queued', 'parties': parties,
+                'pedigree': self.pedigree(horse_id),
+                'offspring': {'horses':offspring,'total':total,'offset':offspring_offset,'limit':30}}
+
+    def pedigree(self, value, depth=3, seen=None):
+        if depth <= 0:
+            return {}
+        seen = (seen or set()) | {value}
+        result = {}
+        for r in self.db.execute('SELECT r.*,p.fetched_at FROM horse_parents r LEFT JOIN horse_profiles p ON p.horse_id=r.parent_id WHERE r.horse_id=?', (value,)).fetchall():
+            cycle = r['parent_id'] in seen
+            result[r['role']] = {'id':r['parent_id'], 'name':r['name'], 'fetched_at':r['fetched_at'],
+                'cycle':cycle, 'parents':self.pedigree(r['parent_id'], depth-1, seen) if r['parent_id'] and not cycle else {}}
+        return result
+
+    def parties(self, role, query='', offset=0):
+        if role not in ('owner','breeder') or len(query)>200 or not 0 <= offset <= 10_000_000:
+            raise ValueError('Invalid relationship search')
+        self.db.create_function('casefold', 1, lambda s:s.casefold() if s else '', deterministic=True)
+        source = """ FROM horse_parties r JOIN horse_profiles p ON p.horse_id=r.horse_id
+            WHERE r.role=? AND instr(casefold(r.label),?)>0"""
+        args = (role, query.strip().casefold())
+        total = self.db.execute('SELECT count(DISTINCT party_key)' + source, args).fetchone()[0]
+        offset = min(offset, max(0,(total-1)//30*30))
+        rows = self.db.execute('SELECT r.party_key AS id,r.label AS name,count(*) AS horses,max(p.fetched_at) AS fetched_at' + source + ' GROUP BY r.party_key,r.label ORDER BY casefold(r.label),r.party_key LIMIT 30 OFFSET ?', (*args,offset))
+        return {'parties':[dict(r) for r in rows], 'role':role,'total':total,'offset':offset,'limit':30}
+
+    def party(self, role, key, offset=0):
+        if role not in ('owner','breeder') or len(key)!=64 or any(c not in '0123456789abcdef' for c in key) or not 0 <= offset <= 10_000_000:
+            raise ValueError('Invalid relationship')
+        source = ' FROM horse_parties r JOIN horse_profiles p ON p.horse_id=r.horse_id JOIN horses h ON h.id=r.horse_id WHERE r.role=? AND r.party_key=?'
+        args = (role,key)
+        row = self.db.execute('SELECT r.label AS name,count(*) AS horses,max(p.fetched_at) AS fetched_at' + source, args).fetchone()
+        if not row['horses']:
+            raise LookupError('Relationship not found')
+        total = row['horses']
+        offset = min(offset,max(0,(total-1)//30*30))
+        horses = [dict(h) for h in self.db.execute('SELECT h.*,p.fetched_at AS relationship_fetched_at' + source + ' ORDER BY h.name,h.id LIMIT 30 OFFSET ?', (*args,offset))]
+        return {'party':{**dict(row),'id':key,'role':role},'horses':horses,'total':total,'offset':offset,'limit':30}
+
+    def people_source(self, role):
+        if role not in ('driver', 'trainer'):
+            raise ValueError('Invalid role')
+        # Membership comes from latest successful lists, not retained stale rows.
+        # Join visible race keys against the existing entries primary-key index.
+        keys = [[m['date'], m['track'], str(r['startNumber'])]
+                for m in self.meeting_rows()
+                for r in (self.head(api.races_path(m['date'], m['track'])) or ([], None))[0]]
+        sql = f"""WITH source AS (
+            SELECT e.*, CAST(json_extract(e.data,'$.{role}Id') AS TEXT) AS person_id,
+                trim(coalesce(json_extract(e.data,'$.{role}Name'),'')) AS person_name
+            FROM json_each(?) v JOIN entries e
+              ON e.date=json_extract(v.value,'$[0]') AND e.track=json_extract(v.value,'$[1]')
+              AND e.race_number=json_extract(v.value,'$[2]')
+            WHERE person_id IS NOT NULL AND person_id NOT IN ('','0')) """
+        return sql, json.dumps(keys)
+
+    def people(self, role, query='', offset=0):
+        if not 0 <= offset <= 10_000_000 or len(query) > 200:
+            raise ValueError('Invalid search')
+        source, keys = self.people_source(role)
+        self.db.create_function('casefold', 1, lambda s: s.casefold() if s else '', deterministic=True)
+        grouped = source + """, ranked AS (
+            SELECT *,row_number() OVER (PARTITION BY person_id ORDER BY fetched_at DESC,
+                date DESC,track,race_number,program_number) AS rank FROM source), people AS (
+            SELECT person_id AS id, max(CASE WHEN rank=1 THEN person_name END) AS name,
+                count(*) AS entries,count(DISTINCT horse_id) AS horses,max(date) AS last_date,
+                max(fetched_at) AS fetched_at FROM ranked GROUP BY person_id)
+            """
+        where = ' FROM people WHERE instr(casefold(name),?)>0'
+        args = (keys, query.strip().casefold())
+        total = self.db.execute(grouped + 'SELECT count(*)' + where, args).fetchone()[0]
+        offset = min(offset, max(0, (total - 1) // 30 * 30))
+        rows = self.db.execute(grouped + 'SELECT *' + where + ' ORDER BY casefold(name),id LIMIT 30 OFFSET ?', (*args, offset))
+        return {'people': [dict(r) for r in rows], 'total': total, 'offset': offset, 'limit': 30, 'role': role}
+
+    def person(self, role, person_id, today, period='', offset=0):
+        if period not in ('', 'upcoming', 'history') or not 0 <= offset <= 10_000_000:
+            raise ValueError('Invalid page')
+        source, keys = self.people_source(role)
+        source += """, person_entries AS (SELECT *,
+            (NOT absent AND trim(coalesce(placing,'')) NOT IN ('','0')) AS has_result,
+            (date>=? AND (absent OR trim(coalesce(placing,'')) IN ('','0'))) AS upcoming
+            FROM source WHERE person_id=?) """
+        args = (keys, today, person_id)
+        person = self.db.execute(source + """SELECT person_id AS id,person_name AS name,fetched_at
+            FROM person_entries ORDER BY fetched_at DESC,date DESC,track,race_number,program_number LIMIT 1""", args).fetchone()
+        if person is None:
+            raise LookupError('Person not found')
+        summary = dict(self.db.execute(source + """SELECT count(*) AS entries,count(DISTINCT horse_id) AS horses,
+            sum(has_result) AS results,sum(has_result AND trim(placing) IN ('1','1=')) AS wins,
+            sum(upcoming) AS upcoming FROM person_entries""", args).fetchone())
+        period = period or ('upcoming' if summary['upcoming'] else 'history')
+        total = summary['upcoming'] if period == 'upcoming' else summary['entries'] - summary['upcoming']
+        offset = min(offset, max(0, (total - 1) // 30 * 30))
+        order = 'ASC' if period == 'upcoming' else 'DESC'
+        rows = self.db.execute(source + f"""SELECT p.*,m.city,m.data AS meeting_data FROM person_entries p
+            JOIN meetings m ON m.date=p.date AND m.track=p.track WHERE upcoming=?
+            ORDER BY p.date {order},p.track,CAST(p.race_number AS INTEGER),p.race_number,
+                CAST(p.program_number AS INTEGER),p.program_number LIMIT 30 OFFSET ?""",
+            (*args, int(period == 'upcoming'), offset))
+        starts = []
+        for row in rows:
+            item = dict(row)
+            item['data'] = json.loads(item['data'])
+            item['meeting_data'] = json.loads(item['meeting_data'])
+            starts.append(item)
+        return {'person': {**dict(person), 'role': role}, 'summary': summary, 'starts': starts,
+                'period': period, 'total': total, 'offset': offset, 'limit': 30}
 
     def saved(self, ids, start):
         if len(ids) > 100 or any(not value.isascii() or not value.isdigit() or len(value) > 30 for value in ids):
@@ -226,7 +347,16 @@ def endpoint(archive, path, params):
             raise ValueError("Invalid search")
         return archive.horses(query, offset)
     if path == "/api/horse":
-        return archive.horse(required(params, "id"))
+        return archive.horse(required(params, "id"), int(params.get('offspring_offset',['0'])[0]))
+    if path == '/api/parties':
+        return archive.parties(required(params,'role'),params.get('q',[''])[0],int(params.get('offset',['0'])[0]))
+    if path == '/api/party':
+        return archive.party(required(params,'role'),required(params,'id'),int(params.get('offset',['0'])[0]))
+    if path == '/api/people':
+        return archive.people(required(params, 'role'), params.get('q', [''])[0], int(params.get('offset', ['0'])[0]))
+    if path == '/api/person':
+        return archive.person(required(params, 'role'), required(params, 'id'), api.iso_date(required(params, 'from')),
+                              params.get('period', [''])[0], int(params.get('offset', ['0'])[0]))
     if path == "/api/saved":
         ids = params.get("ids", [""])[0]
         return archive.saved(ids.split(',') if ids else [], api.iso_date(required(params, "from")))

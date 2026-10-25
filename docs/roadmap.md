@@ -26,15 +26,17 @@ by date, meeting and race so incomplete data is visible. The first UI already sh
 collected-day and field coverage and reconciles omitted meetings/races. Add fuller
 coverage reports and units/code parsers with domain tests.
 
-Investigate Veikkaus historical depth, allowed archival use and ID matching. Use it
-for complementary racecard/odds information only after verifying those contracts.
-Do not silently mix conflicting results or identify horses by name alone.
+A bounded Veikkaus pilot now matches complete fields and displays timestamped
+win-odds observations. Two current and one historical observation are saved;
+the historical scratched-runner omission is fixed. See [Toto integration](toto.md).
+Historical depth and archival-use terms remain unestablished. Do not silently
+mix conflicting results or identify horses by name alone.
 
 ## 3. Useful local web UI (first version implemented)
 
 The first version uses a small Python read-only API and vanilla ES modules/CSS,
 reading SQLite. This replaces the tentative React/TypeScript proposal and avoids
-new dependencies for a small five-view application. User-visible strings use a
+new dependencies for the local application. User-visible strings use a
 Finnish locale structure. See [UI details](ui.md).
 
 Implemented: date/track-filtered calendar, racecards/results, horse-name search,
@@ -42,11 +44,20 @@ paginated horses, collected horse history, missing-data states and observation t
 The calendar now includes an adjacent racecard, direct race-number links, compact
 navigation and inline horse history, so the normal flow does not require a meeting
 page followed by a race page.
+Saved horses and their upcoming entries, five-start prior form and collection
+coverage are also implemented. Searchable **ohjastajat** and **valmentajat** now
+have profiles linked to horses and races, with paginated upcoming/history views.
+See [people and relationships](people.md) for identity rules and verification.
 Further work:
 
 - Breed and race-type calendar filters.
-- Favourite horses and their upcoming starts.
 - Recent-form and horse-history comparisons over a larger dataset.
+- Track profiles and explicit stable identities after source contract research.
+  Owner/breeder source-name groups and bounded pedigrees are now implemented;
+  broader profile coverage continues within the daily request budget. See
+  [horse relationships](horse-relationships.md). Historical ownership still needs
+  a verified source; current profile labels do not establish it.
+- Driver/trainer filters and comparisons by date, track and race type.
 - Calendar export and deeper source links.
 - Later: race eligibility and entry deadlines once the fields and rules are verified.
 
