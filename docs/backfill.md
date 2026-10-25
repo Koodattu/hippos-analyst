@@ -326,3 +326,39 @@ expansion, incomplete fields, refreshes preserving prior coverage, and the
 current/historical racecards, driver/trainer directories and all 11 horse profiles.
 Observed read-plus-JSON times were 1.2–6.2ms for overview/calendar/racecards and
 77.6–80.6ms for people directories. These are local single samples, not load tests.
+
+## 25 October 2026 — 16:00 Helsinki scheduled maintenance
+
+The single `maintain --date 2026-10-25 --max-requests 40` command finished normally
+at 16:16 Helsinki (14:16 UTC). Preflight found the worker lock free, no failed jobs,
+pause or cooldown, and 141 attempts already recorded for this UTC day. Planning
+added no work: refreshes and profiles were already pending, and October remained
+incomplete. No manual seeds, second batch or Toto requests were made.
+
+- **23 successful requests:** 20 refreshes and three bounded ancestor profiles;
+  no historical jobs were due. Unused phase allowances were not borrowed.
+- Refreshed Kuopio's 25 October calendar and remaining fields, then Seinäjoki's
+  26 October race list and ten fields. **80 refresh jobs remain**: ten calendars,
+  six race lists and 64 fields. There are no pending profile or history jobs.
+- **30 meetings, 359 races, 3,808 entries and 2,407 horse identities**;
+  **14 profiles**, ten owner and nine breeder relationships, and 28 parent links.
+  The additional identities include ancestor stubs, not newly collected starts.
+- **494 total attempts, 472 snapshots, 164/200 attempts today**, and 369 completed
+  jobs. No failed jobs, provider stops, cooldowns or consecutive failures.
+- Minimum request-start spacing was **30.00008 seconds**. The command exited and
+  released the worker lock; no collector remains running from this wake-up.
+- Coverage remains **1–29 October 2026**, plus the isolated 22 October 2025 sample.
+  October 30–31 and November 1 calendars still await their first observation;
+  all other discovered racing jobs have at least one successful observation.
+  No month completed, and September has not been seeded. The contiguous frontier
+  and zero consecutive empty historical months are unchanged.
+- SQLite integrity `ok`, zero foreign-key violations, and **all 472 snapshot
+  hashes verified**.
+
+Read-only UI checks passed for overview, October calendar, current and historical
+racecards, both paginated directories and all 14 collected horse profiles. The
+directories returned 2,407 horses and 1,868 people/party-role records. Single
+in-process read-plus-JSON samples took 1.6–33.4ms for overview/calendar/racecards,
+18.0ms for horses and 67.6ms for people; these are smoke checks, not a browser or
+load test. No material read-model regression was observed. Existing unrelated
+UI edits were left intact.

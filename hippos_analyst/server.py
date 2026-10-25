@@ -7,19 +7,44 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from urllib.parse import parse_qs, urlsplit
 
-from . import api, toto
+from . import api, toto, browse, tracks, photos
+from .person_names import PersonNames, visible_entries
 
 WEB = Path(__file__).with_name("web")
 ASSETS = {"/": ("index.html", "text/html"), "/app.mjs": ("app.mjs", "text/javascript"),
           "/model.mjs": ("model.mjs", "text/javascript"), "/styles.css": ("styles.css", "text/css"),
           "/saved.mjs": ("saved.mjs", "text/javascript"),
+          "/photos.mjs": ("photos.mjs", "text/javascript"),
+          "/track-map.mjs": ("track-map.mjs", "text/javascript"),
           "/locales/fi.mjs": ("locales/fi.mjs", "text/javascript")}
+for _photo in ('vermo', 'teivo', 'track-f', 'track-j', 'track-jo', 'track-k', 'track-kt',
+               'track-ku', 'track-l', 'track-la', 'track-m', 'track-o', 'track-p',
+               'track-s', 'track-tk', 'track-to', 'track-y'):
+    ASSETS[f'/images/{_photo}.jpg'] = (f'images/{_photo}.jpg', 'image/jpeg')
 
 
 class Archive:
-    def __init__(self, db):
+    def __init__(self, db, browse_cache=None):
         self.db = db
+        self.browse_cache = browse_cache
         self.heads = {}
+        self._person_names = None
+
+    def photo(self, kind, entity_id):
+        return photos.get(self.db, kind, entity_id)
+
+    def person_names(self):
+        if self._person_names is None:
+            token = (self.db.execute("SELECT max(id) FROM requests WHERE outcome='ok'").fetchone()[0],
+                     self.db.total_changes)
+            cached = self.browse_cache.get('person_names') if self.browse_cache is not None else None
+            if cached and cached[0] == token:
+                self._person_names = cached[1]
+            else:
+                self._person_names = PersonNames(visible_entries(self.db))
+                if self.browse_cache is not None:
+                    self.browse_cache['person_names'] = (token, self._person_names)
+        return self._person_names
 
     def head(self, path):
         if path not in self.heads:
@@ -40,6 +65,7 @@ class Archive:
 
     def meeting_record(self, row):
         result = dict(row)
+        result['track_id'] = tracks.identity(row['track'])
         result["data"] = json.loads(result["data"])
         races = self.race_list(row["date"], row["track"])
         result["races"] = races
@@ -145,7 +171,7 @@ class Archive:
         race = next((r for r in meeting["races"] if r["number"] == number), None)
         if race is None:
             raise LookupError("Race not found")
-        entries = [json.loads(row[0]) for row in self.db.execute("SELECT data FROM entries WHERE date=? AND track=? AND race_number=? ORDER BY CAST(program_number AS INTEGER),program_number", (day, track, number))]
+        entries = [self.person_names().entry(json.loads(row[0])) for row in self.db.execute("SELECT data FROM entries WHERE date=? AND track=? AND race_number=? ORDER BY CAST(program_number AS INTEGER),program_number", (day, track, number))]
         form = {entry['horseId']: self.horse_starts(entry['horseId'], before=day, limit=5)
                 for entry in entries}
         return {**meeting, "race": race, "entries": entries, "form": form,
@@ -160,7 +186,7 @@ class Archive:
         rows = self.db.execute(f"SELECT * FROM horses {where} ORDER BY casefold(name),id LIMIT 30 OFFSET ?", (term, offset))
         return {"horses": [dict(row) for row in rows], "total": count, "offset": offset, "limit": 30}
 
-    def horse(self, horse_id, offspring_offset=0):
+    def horse(self, horse_id, offspring_offset=0, include_starts=True, include_family=True, family_order='h.name,h.id'):
         row = self.db.execute("SELECT * FROM horses WHERE id=?", (horse_id,)).fetchone()
         if row is None:
             raise LookupError("Horse not found")
@@ -169,13 +195,18 @@ class Archive:
         profile = self.db.execute('SELECT data,fetched_at FROM horse_profiles WHERE horse_id=?', (horse_id,)).fetchone()
         job = self.db.execute('SELECT status FROM jobs WHERE path=?', (api.profile_path(horse_id),)).fetchone()
         parties = [dict(p) for p in self.db.execute('SELECT role,label,party_key AS id FROM horse_parties WHERE horse_id=? ORDER BY role', (horse_id,))]
+        result = {"horse": dict(row), "starts": self.horse_starts(horse_id) if include_starts else [],
+                  'photo': self.photo('horse', horse_id),
+                  'profile': {'data': json.loads(profile['data']), 'fetched_at': profile['fetched_at']} if profile else None,
+                  'profile_status': job['status'] if job else 'not_queued', 'parties': parties,
+                  'pedigree': {}, 'offspring': {'horses': [], 'total': 0, 'offset': 0, 'limit': 30}}
+        if not include_family:
+            return result
         children = ' FROM horses h JOIN horse_profiles p ON p.horse_id=h.id WHERE EXISTS (SELECT 1 FROM horse_parents r WHERE r.horse_id=h.id AND r.parent_id=?)'
         total = self.db.execute('SELECT count(*)' + children, (horse_id,)).fetchone()[0]
         offspring_offset = min(offspring_offset, max(0, (total-1)//30*30))
-        offspring = [dict(h) for h in self.db.execute('SELECT h.*,p.fetched_at AS relationship_fetched_at' + children + ' ORDER BY h.name,h.id LIMIT 30 OFFSET ?', (horse_id, offspring_offset))]
-        return {"horse": dict(row), "starts": self.horse_starts(horse_id),
-                'profile': {'data':json.loads(profile['data']), 'fetched_at':profile['fetched_at']} if profile else None,
-                'profile_status': job['status'] if job else 'not_queued', 'parties': parties,
+        offspring = [dict(h) for h in self.db.execute('SELECT h.*,p.fetched_at AS relationship_fetched_at' + children + f' ORDER BY {family_order} LIMIT 30 OFFSET ?', (horse_id, offspring_offset))]
+        return {**result,
                 'pedigree': self.pedigree(horse_id),
                 'offspring': {'horses':offspring,'total':total,'offset':offspring_offset,'limit':30}}
 
@@ -202,7 +233,7 @@ class Archive:
         rows = self.db.execute('SELECT r.party_key AS id,r.label AS name,count(*) AS horses,max(p.fetched_at) AS fetched_at' + source + ' GROUP BY r.party_key,r.label ORDER BY casefold(r.label),r.party_key LIMIT 30 OFFSET ?', (*args,offset))
         return {'parties':[dict(r) for r in rows], 'role':role,'total':total,'offset':offset,'limit':30}
 
-    def party(self, role, key, offset=0):
+    def party(self, role, key, offset=0, ordering='h.name,h.id'):
         if role not in ('owner','breeder') or len(key)!=64 or any(c not in '0123456789abcdef' for c in key) or not 0 <= offset <= 10_000_000:
             raise ValueError('Invalid relationship')
         source = ' FROM horse_parties r JOIN horse_profiles p ON p.horse_id=r.horse_id JOIN horses h ON h.id=r.horse_id WHERE r.role=? AND r.party_key=?'
@@ -212,12 +243,13 @@ class Archive:
             raise LookupError('Relationship not found')
         total = row['horses']
         offset = min(offset,max(0,(total-1)//30*30))
-        horses = [dict(h) for h in self.db.execute('SELECT h.*,p.fetched_at AS relationship_fetched_at' + source + ' ORDER BY h.name,h.id LIMIT 30 OFFSET ?', (*args,offset))]
+        horses = [dict(h) for h in self.db.execute('SELECT h.*,p.fetched_at AS relationship_fetched_at' + source + f' ORDER BY {ordering} LIMIT 30 OFFSET ?', (*args,offset))]
         return {'party':{**dict(row),'id':key,'role':role},'horses':horses,'total':total,'offset':offset,'limit':30}
 
     def people_source(self, role):
         if role not in ('driver', 'trainer'):
             raise ValueError('Invalid role')
+        self.db.create_function('person_name', 2, self.person_names().resolve, deterministic=True)
         # Membership comes from latest successful lists, not retained stale rows.
         # Join visible race keys against the existing entries primary-key index.
         keys = [[m['date'], m['track'], str(r['startNumber'])]
@@ -225,7 +257,9 @@ class Archive:
                 for r in (self.head(api.races_path(m['date'], m['track'])) or ([], None))[0]]
         sql = f"""WITH source AS (
             SELECT e.*, CAST(json_extract(e.data,'$.{role}Id') AS TEXT) AS person_id,
-                trim(coalesce(json_extract(e.data,'$.{role}Name'),'')) AS person_name
+                trim(coalesce(json_extract(e.data,'$.{role}Name'),'')) AS source_name,
+                person_name(CAST(json_extract(e.data,'$.{role}Id') AS TEXT),
+                    trim(coalesce(json_extract(e.data,'$.{role}Name'),''))) AS person_name
             FROM json_each(?) v JOIN entries e
               ON e.date=json_extract(v.value,'$[0]') AND e.track=json_extract(v.value,'$[1]')
               AND e.race_number=json_extract(v.value,'$[2]')
@@ -241,11 +275,12 @@ class Archive:
             SELECT *,row_number() OVER (PARTITION BY person_id ORDER BY fetched_at DESC,
                 date DESC,track,race_number,program_number) AS rank FROM source), people AS (
             SELECT person_id AS id, max(CASE WHEN rank=1 THEN person_name END) AS name,
+                max(CASE WHEN rank=1 THEN source_name END) AS source_name,
                 count(*) AS entries,count(DISTINCT horse_id) AS horses,max(date) AS last_date,
                 max(fetched_at) AS fetched_at FROM ranked GROUP BY person_id)
             """
-        where = ' FROM people WHERE instr(casefold(name),?)>0'
-        args = (keys, query.strip().casefold())
+        where = ' FROM people WHERE (instr(casefold(name),?)>0 OR instr(casefold(source_name),?)>0)'
+        args = (keys, query.strip().casefold(), query.strip().casefold())
         total = self.db.execute(grouped + 'SELECT count(*)' + where, args).fetchone()[0]
         offset = min(offset, max(0, (total - 1) // 30 * 30))
         rows = self.db.execute(grouped + 'SELECT *' + where + ' ORDER BY casefold(name),id LIMIT 30 OFFSET ?', (*args, offset))
@@ -260,7 +295,7 @@ class Archive:
             (date>=? AND (absent OR trim(coalesce(placing,'')) IN ('','0'))) AS upcoming
             FROM source WHERE person_id=?) """
         args = (keys, today, person_id)
-        person = self.db.execute(source + """SELECT person_id AS id,person_name AS name,fetched_at
+        person = self.db.execute(source + """SELECT person_id AS id,person_name AS name,source_name,fetched_at
             FROM person_entries ORDER BY fetched_at DESC,date DESC,track,race_number,program_number LIMIT 1""", args).fetchone()
         if person is None:
             raise LookupError('Person not found')
@@ -279,10 +314,11 @@ class Archive:
         starts = []
         for row in rows:
             item = dict(row)
-            item['data'] = json.loads(item['data'])
+            item['data'] = self.person_names().entry(json.loads(item['data']))
             item['meeting_data'] = json.loads(item['meeting_data'])
             starts.append(item)
         return {'person': {**dict(person), 'role': role}, 'summary': summary, 'starts': starts,
+                'photo': self.photo(role, person_id),
                 'period': period, 'total': total, 'offset': offset, 'limit': 30}
 
     def saved(self, ids, start):
@@ -312,7 +348,7 @@ class Archive:
             if not self.visible_race(entry["date"], entry["track"], entry["race_number"]):
                 continue
             item = dict(entry)
-            item["data"] = json.loads(item["data"])
+            item["data"] = self.person_names().entry(json.loads(item["data"]))
             item["meeting_data"] = json.loads(item["meeting_data"])
             starts.append(item)
             if limit is not None and len(starts) >= limit:
@@ -328,6 +364,20 @@ def required(params, key):
 
 
 def endpoint(archive, path, params):
+    flat = {key: value[0] for key, value in params.items()}
+    if path in ('/api/tracks', '/api/track'):
+        required(params, 'today')
+        if path == '/api/track':
+            required(params, 'id')
+            return tracks.detail(archive, flat)
+        return tracks.directory(archive, flat)
+    if path in ('/api/directory/horses', '/api/directory/people', '/api/activity', '/api/preview'):
+        required(params, 'today')
+        if path == '/api/activity':
+            return browse.activity(archive, flat)
+        if path == '/api/preview':
+            return browse.preview(archive, flat)
+        return browse.directory(archive, path.rsplit('/', 1)[-1], flat)
     if path == "/api/overview":
         return archive.overview()
     if path == "/api/coverage":
@@ -347,11 +397,20 @@ def endpoint(archive, path, params):
             raise ValueError("Invalid search")
         return archive.horses(query, offset)
     if path == "/api/horse":
-        return archive.horse(required(params, "id"), int(params.get('offspring_offset',['0'])[0]))
+        section = params.get('section', ['full'])[0]
+        if section not in ('full', 'activity', 'family'):
+            raise ValueError('Invalid horse section')
+        browse.prepare(archive)
+        ordering = browse.order_by(flat if section == 'family' else {},
+                                   {'name':'fold(h.name) COLLATE FINNISH','observed':'p.fetched_at'},'h.name,h.id')
+        return archive.horse(required(params, "id"), int(params.get('offspring_offset',['0'])[0]),
+                             include_starts=section == 'full', include_family=section != 'activity', family_order=ordering)
     if path == '/api/parties':
         return archive.parties(required(params,'role'),params.get('q',[''])[0],int(params.get('offset',['0'])[0]))
     if path == '/api/party':
-        return archive.party(required(params,'role'),required(params,'id'),int(params.get('offset',['0'])[0]))
+        browse.prepare(archive)
+        ordering = browse.order_by(flat,{'name':'fold(h.name) COLLATE FINNISH','observed':'p.fetched_at'},'h.name,h.id')
+        return archive.party(required(params,'role'),required(params,'id'),int(params.get('offset',['0'])[0]),ordering)
     if path == '/api/people':
         return archive.people(required(params, 'role'), params.get('q', [''])[0], int(params.get('offset', ['0'])[0]))
     if path == '/api/person':
@@ -366,19 +425,34 @@ def endpoint(archive, path, params):
 def make_server(db_path, port=8765):
     db_uri = Path(db_path).resolve().as_uri() + "?mode=ro"
 
+    browse_cache = {}
+
     class Handler(BaseHTTPRequestHandler):
         def do_GET(self):
             address = urlsplit(self.path)
             if self.headers.get("Host", "").split(":")[0] not in ("localhost", "127.0.0.1"):
                 self.respond(403, b'{"error":"forbidden"}', "application/json")
                 return
-            if address.path.startswith("/api/"):
+            if address.path.startswith('/media/'):
+                try:
+                    db = sqlite3.connect(db_uri, uri=True, timeout=10)
+                    db.row_factory = sqlite3.Row
+                    try:
+                        body = photos.image(db, address.path)
+                    finally:
+                        db.close()
+                    self.respond(200, body, 'image/jpeg')
+                except LookupError:
+                    self.respond(404, b'Not found', 'text/plain')
+                except sqlite3.Error:
+                    self.respond(503, b'Photo unavailable', 'text/plain')
+            elif address.path.startswith("/api/"):
                 try:
                     db = sqlite3.connect(db_uri, uri=True, timeout=10)
                     db.row_factory = sqlite3.Row
                     try:
                         db.execute("BEGIN")  # One consistent snapshot during collection.
-                        result = endpoint(Archive(db), address.path, parse_qs(address.query))
+                        result = endpoint(Archive(db, browse_cache), address.path, parse_qs(address.query))
                     finally:
                         db.close()
                     self.respond(200, json.dumps(result, ensure_ascii=False).encode("utf-8"), "application/json")
@@ -396,7 +470,7 @@ def make_server(db_path, port=8765):
 
         def respond(self, status, body, content_type):
             self.send_response(status)
-            self.send_header("Content-Type", content_type + "; charset=utf-8")
+            self.send_header("Content-Type", content_type if content_type.startswith('image/') else content_type + "; charset=utf-8")
             self.send_header("Content-Length", str(len(body)))
             self.send_header("Cache-Control", "no-store")
             self.send_header("X-Content-Type-Options", "nosniff")

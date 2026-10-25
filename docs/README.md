@@ -5,7 +5,9 @@ later, testing predictions. Keep decisions, API evidence and operational changes
 in this directory alongside implementation changes.
 
 - [API research and sources](api-research.md): observed contracts, alternative feeds and uncertainties.
+- [Horse and people photos](photos.md): reviewed Commons imports, local image storage, attribution and initial coverage.
 - [Veikkaus Toto enrichment](toto.md): access, historical evidence, bounded observations and linked UI.
+- [Track profiles](tracks.md): venue identities, curated facts, licensed images and linked meeting history.
 - [Collection and operations](collection.md): commands, limits, pause behaviour and refreshes.
 - [Active backfill policy and progress](backfill.md): slow scheduled continuation, coverage frontier and stop rules.
 - [Archive growth verification](archive-growth.md): paged calendars and the 100,000-horse fixture.

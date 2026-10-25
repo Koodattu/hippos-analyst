@@ -4,6 +4,17 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { coverageState, hasResult, isWinner, historyStats, resultText, kilometerTime, splitStarts, orderEntries, localDay, addDays, route, parseRoute, dateRange, escapeHtml, calendarSelection, calendarParams, calendarPage, raceOrder, withRaceOrder, horseReturnRoute } from '../hippos_analyst/web/model.mjs';
 
+test('track navigation preserves directory search and meeting history while changing venues resets the view', () => {
+  const directory = route('tracks', {q:'Äimä',offset:'30'});
+  const profile = route('track', {id:'hippos-O',period:'history',offset:'30',returnTo:directory});
+  assert.deepEqual(horseReturnRoute(directory),parseRoute(directory));
+  assert.deepEqual(horseReturnRoute(profile),parseRoute(profile));
+  assert.equal(sameView(parseRoute(profile),parseRoute(route('track',{id:'hippos-O',period:'upcoming'}))),true);
+  assert.equal(sameView(parseRoute(profile),parseRoute(route('track',{id:'hippos-H'}))),false);
+  const race = calendarRaceRoute({date:'2026-10-25',track:'O',number:'1',returnTo:profile});
+  assert.deepEqual(horseReturnRoute(parseRoute(race).params.returnTo),parseRoute(profile));
+});
+
 test('selection, filtering and paging preserve the view; opening another entity does not', () => {
   const same = (a,b) => sameView(parseRoute(a),parseRoute(b));
   assert.equal(same('#/calendar?day=2026-10-25&course=KU&number=1', '#/calendar?day=2026-10-24&course=P&number=21'),true);
@@ -65,6 +76,7 @@ test('calendar pages retain filters and sort, reset race selection, and survive 
   assert.deepEqual(restored, next);
   assert.equal(calendarParams(restored, {date:'2025-03-01',track:'H'}, '2').offset, '30');
   assert.deepEqual(calendarPage(restored, range, 0), {...range,track:'H',offset:'0',order:'result'});
+  assert.deepEqual(calendarPage({...params,sort:'name',dir:'desc'},range,30), {...next,sort:'name',dir:'desc'});
 });
 
 test('result-order URL preserves selected race and filters through a reload', () => {
@@ -81,6 +93,8 @@ test('horse return route restores Finnish search and page without allowing exter
   const origin = route('horses', { q:'Ääni & ääni', offset:'30' });
   const profile = parseRoute(route('horse', { id:'7616196635396808820', returnTo:origin }));
   assert.deepEqual(horseReturnRoute(profile.params.returnTo), { name:'horses', params:{q:'Ääni & ääni',offset:'30'} });
+  const people = route('people',{q:'Korpi',role:'trainer',offset:'30',sort:'name',dir:'desc'});
+  assert.deepEqual(horseReturnRoute(people),parseRoute(people));
   for (const invalid of [undefined, 'https://example.com', 'javascript:alert(1)', '//example.com', '#/unknown?id=1']) {
     assert.deepEqual(horseReturnRoute(invalid), {name:'horses',params:{}});
   }
@@ -241,4 +255,40 @@ test('odds distinguish missing quotes, source units and matched identities', () 
 test('equipment preserves unknown codes instead of claiming no shoes or no sulky', () => {
   assert.deepEqual(equipmentCodes({shoesFront:'K',shoesBack:'E',americanSulkyKEX:'K'}),{front:true,rear:false,american:true});
   assert.deepEqual(equipmentCodes({shoesFront:'X',shoesBack:null,americanSulkyKEX:'new'}),{front:null,rear:null,american:null});
+});
+import { nextSort, numericValue, calendarRaceRoute } from '../hippos_analyst/web/model.mjs';
+
+test('headers cycle ascending, descending, default and switching columns restarts ascending', () => {
+  const asc=nextSort({},'name');
+  assert.deepEqual(asc,{sort:'name',dir:'asc'});
+  const desc=nextSort(asc,'name');
+  assert.deepEqual(desc,{sort:'name',dir:'desc'});
+  assert.deepEqual(nextSort(desc,'name'),{sort:'',dir:''});
+  assert.deepEqual(nextSort(desc,'placing'),{sort:'placing',dir:'asc'});
+});
+
+test('table sorting uses numbers, preserves ties and leaves missing values last in both directions', () => {
+  const entries=[{horseId:'a',programNumber:'1',horseName:'Öinen',placing:'0',price:'0'},
+    {horseId:'b',programNumber:'2',horseName:'Ääni',placing:'2',price:'100',shortKilometerTime:'14,5a'},
+    {horseId:'c',programNumber:'3',horseName:'Aamu',placing:'1=',price:'20',shortKilometerTime:'9,9'},
+    {horseId:'d',programNumber:'4',horseName:'Aamu',placing:'1',price:'20',shortKilometerTime:'hyl'}];
+  const ids=(sort,dir='asc')=>orderEntries(entries,{sort,dir}).map(r=>r.horseId);
+  assert.deepEqual(ids('prize'),['c','d','b','a']);
+  assert.deepEqual(ids('prize','desc'),['b','c','d','a']);
+  assert.deepEqual(ids('time'),['c','b','a','d']);
+  assert.deepEqual(ids('name'),['c','d','b','a']);
+  assert.equal(numericValue('14,5a'),14.5);
+  assert.equal(numericValue('hyl'),null);
+  assert.deepEqual(entries.map(r=>r.horseId),['a','b','c','d']);
+});
+
+test('race links open the calendar selection and retain the originating profile', () => {
+  const target=parseRoute(calendarRaceRoute({date:'2026-10-25',track:'KU',number:'21',returnTo:'#/person?role=driver&id=123',sort:'placing',dir:'desc'}));
+  assert.equal(target.name,'calendar');
+  assert.equal(target.params.day,'2026-10-25');
+  assert.equal(target.params.from,target.params.to);
+  assert.equal(target.params.course,'KU');
+  assert.equal(target.params.number,'21');
+  assert.equal(target.params.returnTo,'#/person?role=driver&id=123');
+  assert.equal(target.params.sort,'placing');
 });

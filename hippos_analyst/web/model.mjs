@@ -26,7 +26,7 @@ export function parseRoute(hash) {
 // Opening another entity is a new page, even when it shares a route name.
 export function sameView(previous, next) {
   if (!previous || previous.name !== next.name) return false;
-  const keys = {horse:['id'], person:['id','role'], party:['id','role'],
+  const keys = {horse:['id'], track:['id'], person:['id','role'], party:['id','role'],
     race:['date','track'], meeting:['date','track']}[next.name] || [];
   return keys.every(key => previous.params[key] === next.params[key]);
 }
@@ -52,7 +52,7 @@ export function withRaceOrder(hash, order) {
 export function horseReturnRoute(returnTo) {
   if (typeof returnTo === 'string' && returnTo.startsWith('#/')) {
     const target = parseRoute(returnTo);
-    if (['horses', 'horse', 'calendar', 'race', 'saved', 'person', 'party'].includes(target.name)) return target;
+    if (['horses', 'horse', 'calendar', 'race', 'saved', 'people', 'person', 'party', 'tracks', 'track'].includes(target.name)) return target;
   }
   return { name: 'horses', params: {} };
 }
@@ -95,7 +95,8 @@ export function calendarParams(params, meeting, number) {
 export function calendarPage(params, range, offset) {
   // Pin the range so newly collected dates cannot move the page on refresh.
   return { from: range.from, to: range.to, track: params.track || '',
-    offset: String(offset), order: raceOrder(params) };
+    offset: String(offset), order: raceOrder(params),
+    ...(params.sort ? {sort:params.sort,dir:params.dir || 'asc'} : {}) };
 }
 
 export function hasResult(entry) {
@@ -113,9 +114,44 @@ export function isWinner(entry) {
   return hasResult(entry) && /^1=?$/.test(String(entry.placing).trim());
 }
 
-export function orderEntries(entries, order) {
-  const place = entry => hasResult(entry) && /^\d+=?$/.test(String(entry.placing)) ? parseInt(entry.placing, 10) : Infinity;
-  return [...entries].sort((a, b) => (order === 'result' ? place(a) - place(b) : 0) || Number(a.programNumber) - Number(b.programNumber));
+export function nextSort(params, key) {
+  if (params.sort !== key) return { sort: key, dir: 'asc' };
+  return params.dir === 'desc' ? { sort: '', dir: '' } : { sort: key, dir: 'desc' };
+}
+
+export function numericValue(value) {
+  const match = String(value ?? '').trim().match(/^(\d+(?:[.,]\d+)?)(?:[a-zA-Z]|=)*$/);
+  return match ? Number(match[1].replace(',', '.')) : null;
+}
+
+export function orderEntries(entries, order, form = {}, toto = null) {
+  const params = typeof order === 'object' ? order : { sort: order === 'result' ? 'placing' : 'number', dir: 'asc' };
+  const resultNumber = (entry, key) => hasResult(entry) ? numericValue(entry[key]) : null;
+  const fields = {
+    number: entry => numericValue(entry.programNumber), name: entry => entry.horseName,
+    driver: entry => entry.driverName || null, trainer: entry => entry.trainerName || null,
+    distance: entry => numericValue(entry.distance), odds: entry => numericValue(runnerMarket(entry, toto).value),
+    placing: entry => resultNumber(entry, 'placing'),
+    time: entry => resultNumber(entry, entry.shortKilometerTime ? 'shortKilometerTime' : 'kilometerTime'),
+    prize: entry => resultNumber(entry, 'price'),
+    form: entry => form[entry.horseId]?.[0] ? resultNumber(form[entry.horseId][0].data, 'placing') : null,
+  };
+  const value = fields[params.sort] || fields.number;
+  const collator = new Intl.Collator('fi', { numeric: true, sensitivity: 'base' });
+  return [...entries].sort((a, b) => {
+    const x = value(a), y = value(b);
+    const compared = x == null || y == null ? Number(x == null) - Number(y == null)
+      : (typeof x === 'number' ? x - y : collator.compare(x, y)) * (params.dir === 'desc' ? -1 : 1);
+    return compared || Number(a.programNumber) - Number(b.programNumber) || String(a.horseId).localeCompare(String(b.horseId));
+  });
+}
+
+export function calendarRaceRoute(params) {
+  return route('calendar', { from: params.date, to: params.date, day: params.date,
+    course: params.track, number: params.number,
+    ...(params.order ? {order:params.order} : {}),
+    ...(params.sort ? {sort:params.sort,dir:params.dir || 'asc'} : {}),
+    ...(params.returnTo ? {returnTo:returnContext(params.returnTo)} : {}) });
 }
 
 export function historyStats(starts) {

@@ -107,8 +107,24 @@ def connect(path):
         CREATE TABLE IF NOT EXISTS maintenance_state (
             name TEXT PRIMARY KEY, value TEXT NOT NULL
         );
+        CREATE TABLE IF NOT EXISTS tracks (
+            id TEXT PRIMARY KEY, hippos_code TEXT NOT NULL UNIQUE,
+            data TEXT NOT NULL, fetched_at REAL
+        );
+        CREATE TABLE IF NOT EXISTS photo_assets (
+            sha256 TEXT PRIMARY KEY, image BLOB NOT NULL,
+            width INTEGER NOT NULL, height INTEGER NOT NULL, metadata TEXT NOT NULL
+        );
+        CREATE TABLE IF NOT EXISTS profile_photos (
+            kind TEXT NOT NULL CHECK(kind IN ('horse','driver','trainer')), entity_id TEXT NOT NULL,
+            asset_hash TEXT NOT NULL REFERENCES photo_assets(sha256),
+            expected_name TEXT NOT NULL, identity_note TEXT NOT NULL,
+            PRIMARY KEY(kind,entity_id)
+        );
         PRAGMA user_version = 1;
     """)
+    from . import tracks
+    tracks.initialize(db)
     return db
 
 
@@ -161,6 +177,8 @@ def save_response(db, job, records, request_id, now):
         data = encode(record)
         if job["kind"] == "calendar":
             track = record["trackCode"]
+            from .tracks import observe
+            observe(db, record, now)
             db.execute("""INSERT INTO meetings VALUES(?,?,?,?,?,?,?,?)
                 ON CONFLICT(date,track) DO UPDATE SET name=excluded.name,start_time=excluded.start_time,
                 city=excluded.city,canceled=excluded.canceled,data=excluded.data,fetched_at=excluded.fetched_at""",

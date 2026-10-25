@@ -57,6 +57,16 @@ def parser():
     race.add_argument("--number", required=True)
     web = commands.add_parser("serve", help="Open a read-only local web UI; no upstream requests")
     web.add_argument("--port", type=int, default=8765)
+    photo = commands.add_parser('import-commons-photo', help='Import one identity-reviewed, CC-licensed Commons JPEG')
+    photo.add_argument('--kind', required=True, choices=('horse', 'driver', 'trainer'))
+    photo.add_argument('--id', required=True, help='Exact ID in this archive')
+    photo.add_argument('--name', required=True, help='Expected name displayed by this archive (must match)')
+    photo.add_argument('--file', required=True, help='Exact Wikimedia Commons File: title')
+    photo.add_argument('--identity-note', required=True, help='Evidence that the pictured subject matches this ID')
+    photo.add_argument('--replace', action='store_true', help='Intentionally replace the photo on this profile')
+    remove_photo = commands.add_parser('remove-photo', help='Remove a profile photo locally; no network requests')
+    remove_photo.add_argument('--kind', required=True, choices=('horse', 'driver', 'trainer'))
+    remove_photo.add_argument('--id', required=True)
     return root
 
 
@@ -113,6 +123,15 @@ def main(argv=None):
             return 2 if outcome in ("paused", "retry", "failed") else 0
         elif args.command == "status":
             display(store.status(db))
+        elif args.command == 'import-commons-photo':
+            from . import photos
+            with collector.worker_lock(args.db):
+                display(photos.import_commons(db, args.kind, args.id, args.name, args.file,
+                                             args.identity_note, args.replace))
+        elif args.command == 'remove-photo':
+            from . import photos
+            with collector.worker_lock(args.db):
+                print(f'Removed {photos.remove(db, args.kind, args.id)} photo assignment(s).')
         elif args.command == "pause":
             with db:
                 collector.pause(db, args.reason)

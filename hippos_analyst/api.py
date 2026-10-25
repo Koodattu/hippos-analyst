@@ -100,7 +100,7 @@ def fetch(path):
 
 MEETING_FIELDS = "date trackCode startTime name eventType trackShortname trackType trackNumber meetNumber trackCondition temperature trackCity trackName canceled hasPublishedResults isFreeToPublish majorRace finnishTrack latitude longitude formattedTrackName".split()
 RACE_FIELDS = "date trackCode startNumber categoryNumber plannedTime actualTime startType startForm monte totoResultsReady publishFree eventType baseDistance finnishTrack trackNumber firstPrice priceSum status specialRace".split()
-RUNNER_FIELDS = "date trackCode startNumber startForm monte programNumber lane distance placing totalTime kilometerTime shortKilometerTime price winOdds winOddsStr horseId horseName horseBreed horseRegistrationCountry trainerId trainerName driverId driverName gallop absent shoesFront shoesBack americanSulkyKEX startType testStartAccepted finnishTrack trackNumber horsePriceSum record recordType recordMonte status startAmount condition expectedValue trainerCommentsUpdated distanceCode shortCarRecord shortRecord".split()
+RUNNER_FIELDS = "date trackCode startNumber startForm monte programNumber lane distance placing totalTime kilometerTime shortKilometerTime price winOdds winOddsStr horseId horseName horseBreed horseRegistrationCountry trainerId trainerName driverId driverName driverFirstName driverLastName gallop absent shoesFront shoesBack americanSulkyKEX startType testStartAccepted finnishTrack trackNumber horsePriceSum record recordType recordMonte status startAmount condition expectedValue trainerCommentsUpdated distanceCode shortCarRecord shortRecord".split()
 BOOLEAN_FIELDS = frozenset('absent canceled hasPublishedResults monte finnishTrack totoResultsReady publishFree isFreeToPublish gallop'.split())
 
 

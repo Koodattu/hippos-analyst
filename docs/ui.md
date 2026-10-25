@@ -1,6 +1,8 @@
 # Local UI
 
-Owner/breeder name groups and linked pedigrees are implemented. The latest
+The current interface is documented in the [table workspace verification](#table-workspace--25-october-2026) below. Earlier verification entries describe their respective releases.
+
+Owner/breeder name groups and linked pedigrees are implemented. The earlier
 [relationship verification](horse-relationships.md) records 62 Python and 20
 JavaScript tests, desktop/mobile journeys and the 10,001-profile growth fixture.
 
@@ -31,13 +33,16 @@ public hosting. Running the UI never starts the collector or calls Hippos.
   edited dates use **Näytä** or Enter. Week arrows remain available when a filtered
   range is empty or has never been collected.
 - Racecards show participants, drivers/trainers, distances and available results.
-  Sort by program number or placing. The selected race/order are preserved in the
-  URL across local refresh, reload, and race links. Scratches are marked **Pois**. The external-view
-  icon opens a standalone local race view; it does not contact Hippos.
-- Clicking a horse name in a race expands up to five collected starts directly
-  below that runner. Close it in place or open the full horse page. Modified clicks
-  retain normal link behavior, including opening a horse in a new tab.
-- Use **Hevoset** to search names. Search supports
+  Click a column header to cycle ascending, descending and default order. The
+  selected race/order are preserved in the URL. Scratches are marked **Pois**.
+  Race links open the calendar selection; old standalone race URLs redirect there.
+- Clicking row space or its disclosure expands up to five earlier collected starts
+  below that runner, with horse facts, equipment and driver/trainer previews.
+  Horse and person names are normal profile links, including modified clicks.
+  Sorting the race preserves expanded rows.
+- Use the compact **Hevoset** and **Ihmiset** tables to search, filter and sort
+  the whole matching dataset before pagination. All people roles share one table
+  with a role filter. Search supports
   Finnish case folding and pagination. Horse IDs remain strings end to end.
   A profile's return link restores the originating query and page. Profiles opened
   from the calendar or a standalone race return to that view instead. Direct profile
@@ -61,7 +66,8 @@ starts at its heading. There is no separate refresh-view button: navigation read
 the current local database, and browser reload refreshes the current view.
 Repeated introductions and the local-data badge/footer have been removed. Context
 about collection and result semantics is available under **Tietoja aineistosta**;
-timestamps, missing-data states and collection-stop indicators remain visible.
+timestamps and missing-data states remain visible. Operational collection status
+is shown under coverage, without a collection-stop badge above the calendar.
 Source links open the Heppa home page; stable deep links are not yet verified.
 
 ## Result semantics
@@ -328,3 +334,99 @@ horizontal overflow or nested vertical scroll containers. Sorting worked, and a
 direct mobile race change retained Y=422, the selected sort and keyboard focus.
 All 23 JavaScript tests, module syntax and whitespace checks passed. The screenshot
 is `data/ui-compact-calendar-2026-10-25.jpg`; viewport overrides were reset.
+
+
+## Table workspace — 25 October 2026
+
+The calendar is the canonical race view. Desktop date presets, custom dates and
+track controls sit above the meeting list in a sticky sidebar header. On phones
+the controls flow above the horizontal meeting strip. There is no duplicate race
+page or sort dropdown. Headers are keyboard buttons with `aria-sort`; three clicks
+cycle ascending, descending and source order. Numeric values sort numerically,
+unknown values stay last, and equal values have deterministic ordering. Clicking
+row space expands details; linked names navigate deliberately. Existing expansions
+survive local race sorting. Collection messages no longer occupy the main header.
+
+Horse and people directories use compact filter bars and 30-row semantic tables.
+Horse filters include breed, gender, age range and upcoming entries. People share
+one role selector; driver/trainer identities remain distinct `(role, id)` records,
+and owner/breeder name groups retain their separate provenance. Name filtering is
+literal and Finnish-aware. Debounced search cancels stale requests and restores
+input focus/caret. Sorting and filters apply globally before paging.
+
+Horse/person profiles put upcoming entries and history first, with compact sample
+counts. Horse facts sit alongside activity on wide screens; pedigree and offspring
+have a separate family tab. Person profiles also expose related horses. Upcoming
+rows show entry status, rather than empty result columns. Relationship lists are
+sortable tables. Return links preserve search, role, period, page and sort state.
+
+### Read paths and limits
+
+- `/api/directory/horses` and `/api/directory/people`: `today`, `q`, `offset`,
+  `sort`, `dir` plus their UI filters; 30 rows per response.
+- `/api/activity`: `today`, `role=horse|driver|trainer`, `id`,
+  `period=upcoming|history|horses`, `track`, `q`, `offset`, `sort`, `dir`.
+- `/api/preview`: `today`, `kind`, `id`, optional `before`; five rows at most.
+  Race previews exclude starts on/after that race date.
+- `/api/horse?section=activity` omits unbounded legacy history and pedigree;
+  `section=family` loads relationships on demand. Legacy read routes still work.
+
+All reads retain latest-successful-list membership and use a consistent read
+transaction. Directory aggregates are cached per server, invalidated by the latest
+successful observation and Helsinki day. The cache holds one record set per kind,
+not one per query; memory still scales with archive identity count. Inline previews
+have an 80-item, 30-second client cache. No production dependency, schema change,
+upstream request or collector configuration change was needed.
+
+### Verification
+
+105 Python tests and 26 JavaScript tests passed with the concurrent name-resolution
+changes included. Coverage includes whole-dataset sorting and paging, role/ID
+separation, literal/Finnish search, missing numeric values, cache invalidation,
+visible-list removals, bounded previews, relationships, three-state sorting,
+canonical race links and origin/filter restoration. Module syntax checks passed.
+
+Manual browser checks at 1440×1000 and 390×844 covered calendar selection, all three
+sort states, preserved expansion, keyboard disclosure, inline person details,
+debounced search, role filtering, profile back links and person history page two.
+The old race URL opens the calendar selection. Tested mobile calendar and horse
+views had no document horizontal overflow or nested vertical scroll containers;
+wide tables retain horizontal scrolling and expanded details stay within the
+visible width. These are representative checks, not exhaustive accessibility tests.
+
+Reproduce the synthetic growth check without modifying its source database:
+
+```powershell
+python scripts/benchmark_browse.py --db data/people-growth-verified.sqlite3
+```
+
+100,000 entries / 100,000 horses / 2,500 role identities; three repetitions, name
+descending sort, validated totals, ordering and 30-row responses. Median read-model
+plus JSON times: horses 632.65 ms cold / 117.48 ms warm; people 1353.47 ms cold /
+1.87 ms warm. Payloads were 6,640 and 6,321 bytes. Cold means empty application
+cache, not cold OS/SQLite caches. HTTP and browser rendering are excluded. The
+first people read includes the concurrent full-name resolution work. These are
+local fixture measurements, not guarantees for arbitrary archive sizes.
+
+
+### Compact inline details — 25 October 2026
+
+Expandable rows now own their disclosure state and keyboard focus. Clicking row
+space or pressing Enter/Space toggles the detail row; names retain normal links.
+A decorative chevron sits in the last column, pinned to the visible right edge
+on horizontally scrolling tables. Separate chevron and close buttons are removed.
+
+The stronger green expansion uses a compact horse-facts line and adjacent horse,
+driver and trainer sections. Driver/trainer summaries and up to three upcoming or
+recent starts load automatically through the existing bounded preview endpoint;
+there are no nested person disclosures. Odds observations sit with horse history,
+without a separate full-width block below the tallest section. Unknown horse facts
+are omitted rather than reserving a mostly empty background-information column.
+
+Verification: 26 existing frontend tests, module syntax and whitespace checks
+passed. Browser checks covered Enter/Space and pointer toggling, normal person
+navigation, expansion retention while sorting, and matching header/body column
+counts. At 1914×958, Vonkaisu's expansion was 254px tall with both person summaries
+visible. At 390×844 the expansion fit a 315px content width, the chevron remained
+at the visible right edge, and there was no document horizontal overflow or nested
+vertical scroll container. No backend or collection changes were needed.

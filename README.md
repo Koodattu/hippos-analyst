@@ -43,12 +43,17 @@ repository does not install that automation.
 
 ```powershell
 python -m unittest discover -s tests -v
-node --test tests/ui.test.mjs
+node --test tests/ui.test.mjs tests/photos.test.mjs
 ```
 
 Node.js is only needed to run the frontend logic tests. See [UI and verification](docs/ui.md).
 [Veikkaus Toto enrichment](docs/toto.md) is available for explicitly selected races.
+[Track profiles](docs/tracks.md) include a Finland map and photo cards, venue facts,
+credited local photographs and links to collected meetings and races.
 Weather integration and prediction models remain planned.
 The software licence does not grant rights to the upstream datasets.
+
+[Horse and people photos](docs/photos.md) can be imported from reviewed,
+CC-licensed Commons files and displayed locally with attribution.
 
 [Latest product changes and verification](docs/product-improvements-2026-10-22.md)

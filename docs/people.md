@@ -24,8 +24,10 @@ horse profiles. Canceled meetings and scratches remain visible with labels.
 
 A trainer is an assignment on a particular archived race entry. It does not
 establish the horse's current trainer, stable or ownership. Names may be
-abbreviated, and the latest observed display name is used. Identity is the pair
-`(role, exact string ID)`; neither names nor equal IDs across roles prove a match.
+abbreviated. The latest observed name for each role is expanded only when the
+same exact Hippos person ID has one unambiguous compatible full name in visible
+entries. Role profiles and statistics remain keyed by `(role, exact string ID)`;
+name similarity alone never establishes identity. See the verification below.
 
 ## Read API and storage
 
@@ -110,3 +112,69 @@ requests before expanding allowlists; retain only relevant competition facts.
 Any future importer must share existing request budgets, cooldowns and persistent
 provider-limit stops. This feature did not restart the collector after its last
 transport failure.
+
+## Full person names — verified 25 October 2026
+
+Hippos uses a shared person ID for drivers and trainers. The public
+[Mobiiliheppa app](https://heppa.hippos.fi/mobiili/) routes both role tabs through
+`/people/:id`; its `getPromise` passes that same ID to `/person/{id}`,
+`/driver/{id}/stats` and `/trainer/{id}/stats`. This was checked in bundle
+`7b2befc90a22ad05f3fa` and person chunk `23-bee4be53bfbf4c690bb1`.
+
+Bounded live profile checks confirmed:
+
+- `/person/2576121652984750609`: `firstname=Antti`, `lastname=Ala-Rantala`.
+  That ID occurs locally as both driver `A Ala-Rantala` and trainer
+  `Antti Ala-Rantala`.
+- `/person/295190086041368698`: `firstname=Tommi`, `lastname=Kylliäinen`.
+  The archive has driver `T Kylliäinen` without a trainer record for that ID.
+  Full names are therefore available beyond local cross-role matches, although
+  these samples do not establish complete coverage of every person.
+
+The race response `/race/2026-10-28/H/start/9` also supplies `driverFirstName`
+and `driverLastName` alongside the abbreviated `driverName`. For example,
+`T Varis` has `Tuukka` / `Varis`, and `Vil Koivisto` has `Ville` / `Koivisto`.
+Hippos's race-display module uses these same fields. Our allowlist now retains
+both fields during normal collection and refresh. Previously minimized snapshots
+cannot recover omitted fields without a new observation.
+
+The read model uses these explicit driver fields and trainer names as full-name
+candidates for the exact string person ID. It requires a unique candidate and a
+matching complete surname plus a compatible given-name prefix (including dotted
+initials and multi-letter abbreviations). Conflicting candidates, incompatible
+names and missing IDs remain unchanged. Removed races/meetings supply no evidence.
+The candidate cache is invalidated by successful collection observations.
+
+Resolved names are used in directories, role profiles, racecards, histories,
+previews and sorting before pagination. Directories search both the resolved
+name and the latest source label. Responses retain `source_name` on role records
+and `driverSourceName` / `trainerSourceName` on entries whose display name changed;
+stored entry names and snapshots are untouched. Owner/breeder name groups and
+role-specific counts are unchanged. On the checked archive this resolved 390
+driver labels, including multi-letter abbreviations.
+
+No person-profile importer or automatic upstream lookup was added. Unmatched
+names can improve through ordinary race refreshes using the newly retained
+fields. The four profile/race research requests used the existing collector lock,
+30-second spacing, combined daily budget and persistent stop controls. Only
+minimized identity/name research evidence was retained in ignored `data/` files;
+unrelated person-profile values were not saved.
+
+Regression coverage in `tests/test_person_names.py` checks exact string IDs,
+conflicting candidates, prefix compatibility, source preservation, all display
+paths, imported explicit names, search, ordering and cache invalidation after
+corrections and membership removal.
+
+### Hyphenated initials follow-up
+
+Matching now compares each hyphen-separated given-name component: `A-S Hanttu`
+resolves to `Anni-Sofia Hanttu` only for the same exact person ID, with the surname
+and both initials matching. Different initials, missing components and different
+IDs remain unresolved. This adds 15 safe driver expansions in the checked archive,
+for 405 resolved driver labels in total. Six focused name-resolution tests cover
+the matching and display paths.
+
+The other eleven abbreviated labels in the follow-up screenshot have no full-name
+candidate in the local archive. They require a new upstream observation, through
+ordinary race refreshes or a future bounded person-name importer using the verified
+`/person/{id}` endpoint. No profile-name backfill has been performed.
