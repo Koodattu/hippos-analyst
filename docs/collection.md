@@ -212,8 +212,9 @@ start a new collection run; 19 jobs remain queued.
 Pass the current **Europe/Helsinki** date; the example date is not a permanent
 schedule argument. The command holds the existing worker lock through planning
 and all three collection phases. It has no background subprocesses and does not
-clear pauses, reset budgets or retry failed jobs. Its limits are fixed at 30-second
-spacing and 200 combined attempts per UTC day. Any failed job now blocks both
+clear pauses, reset budgets or retry failed jobs. The bounded CLI defaults to 30-second
+spacing and 200 combined attempts per UTC day. The continuous worker now uses
+the owner-approved 15-second spacing and 500-attempt daily cap. Any failed job now blocks both
 ordinary providers and maintenance until investigated.
 
 Each wake-up permits at most 20 refresh, 10 profile and 10 historical requests.
@@ -246,7 +247,18 @@ October 2025 sample cannot skip intervening months. Pending historical work bloc
 another month's seeds; twelve consecutive observed empty months stop expansion
 for investigation. Profile completion never establishes racing-history coverage.
 
-The existing chat automation uses this command at 08:00, 12:00, 16:00 and 20:00
-Europe/Helsinki. It remains local: the computer and Codex app must be running and
-network approval must be available. No separate Toto polling or new Toto targets
-are scheduled by `maintain`; explicit bounded Toto jobs use `run-toto`.
+The owner replaced the Windows schedule with a standalone continuous worker on
+2 November 2026. It runs immediately with `--continuous --delay 15 --daily-budget 500`,
+without a sign-in trigger, OS service or Codex automation. It keeps the shared lock
+for its lifetime, calculates the current Helsinki date per pass, records rotating
+logs/status and checks SQLite integrity. It continues between batches without
+an hourly wait, sleeps through the UTC daily cap or provider cooldown, and exits
+on a persistent pause or failed job. See [background operation](background.md).
+No extra Toto polling or new Toto targets are scheduled.
+
+The twelve-empty-month boundary now persists a collector pause before scheduling
+refresh/profile work or issuing a request. This makes the boundary enforceable
+without a chat agent. Unexpected background errors also persist a pause while
+preserving an existing provider reason and cooldown. The worker never
+clears these pauses or retries failed-status jobs. Transient errors end the pass;
+a later pass after the stored cooldown (at least 60 seconds) may retry a pending job.

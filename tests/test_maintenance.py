@@ -95,6 +95,12 @@ class MaintenanceTests(unittest.TestCase):
         result=maintenance.seed_history(self.db)
         self.assertEqual(result['reason'],'twelve_empty_months')
         self.assertEqual(result['queued'],0)
+        count = self.db.execute('SELECT count(*) FROM jobs').fetchone()[0]
+        outcome = maintenance.run(self.db, self.today, clock=self.clock,
+                                  fetch=lambda _: self.fail('Depth boundary sent a request'), emit=lambda _: None)
+        self.assertEqual(outcome, 'paused')
+        self.assertIn('Twelve empty', self.db.execute('SELECT paused_reason FROM control').fetchone()[0])
+        self.assertEqual(self.db.execute('SELECT count(*) FROM jobs').fetchone()[0], count)
 
     def test_profile_seeds_are_once_per_day_and_only_known_participants(self):
         # Minimal normalized records create actual participant identities.

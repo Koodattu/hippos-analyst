@@ -24,4 +24,5 @@ in this directory alongside implementation changes.
 
 The implementation includes a bounded Hippos collector, local command-line reader
 and Finnish web UI, plus optional Veikkaus Toto enrichment. Weather and prediction models remain planned.
-A bounded scheduled chat automation continues the backfill; see the operating policy above.
+A standalone continuous worker continues the backfill independently of Codex; see
+[background operation and controls](background.md).

@@ -1,6 +1,6 @@
 # Gradual archive backfill
 
-Updated 31 October 2026. The owner requested continued slow collection, broad
+Updated 2 November 2026. The owner requested continued slow collection, broad
 historical coverage, UI growth checks, and a stop on crawling limits.
 
 ## Scope and progress frontier
@@ -14,19 +14,18 @@ nationwide completeness are unknown; an empty response is not proof of either.
 
 - Completed first-observation window: **2026-10-01 through 2026-10-31**.
 - All 31 October calendars, 31 discovered race lists and 382 discovered fields
-  have successful observations. This includes upcoming fields; final results and
-  subsequent provider changes are not complete. November 1–2 have observed
+  have successful observations. Some fields were observed before racing; final
+  results and subsequent provider changes are not complete. November 1–2 have observed
   calendars/race lists and all 16 Joensuu / 12 Kaustinen fields, respectively.
-  November 3–7 calendars are queued but not yet observed.
+  November 3–4 have observed calendars/race lists and all 12 Tampere / 10 Vermo
+  fields, respectively. November 5–9 calendars are queued but not yet observed.
   Turku's previously empty 29 October race list now contains 11 races; all their
   fields were collected on 27 October. Empty observations can change later.
 - Earlier isolated sample: **2025-10-22**. Do not jump to September 2025 on account
   of this sample; the intervening year has not been collected.
 - Historical month now being filled: **September 2026**. Its 30 calendars are
-  seeded; September 28–30 have all discovered fields observed. September 27 has
-  an observed calendar with three meetings, all 13 PS fields, and the PX race
-  list with one of its eight fields. Seven PX fields, the Y race list and
-  September 1–26 calendars remain unobserved.
+  seeded; September 26–30 have all discovered fields observed, including all
+  13 Tampere fields on September 26. September 1–25 calendars remain unobserved.
 - Contiguous months with all discovered racing jobs observed: **one (October 2026)**.
 - Consecutive completely empty historical months: **0**.
 
@@ -40,54 +39,40 @@ Report coverage as observed snapshots, never a verified copy of the provider.
 
 ## Active operating policy
 
-Use the same live database, `data/hippos.sqlite3`, and a single worker. Requests
-start at least **30 seconds apart**, with at most **200 attempts per UTC day**
-shared by historical collection, refreshes, failures and interrupted requests.
-These are our ceilings, not provider-approved limits. The underlying CLI defaults
-remain unchanged; use the explicit arguments below for this backfill policy.
-
-The chat automation **Grow Hippos archive slowly** (`grow-hippos-archive-slowly`)
-uses four wake-ups: **08:00, 12:00, 16:00 and 20:00 Europe/Helsinki**. Each runs:
+At the owner's explicit request on 2 November, use one standalone continuous
+worker with **15-second request spacing and 500 combined attempts per UTC day**.
+These are local ceilings, not provider-approved limits. The ledger is never reset.
+The Windows hourly/sign-in task was stopped and removed, and its installer was
+removed from the repository. There is no OS schedule, service or Codex heartbeat.
 
 ```powershell
-python -u -m hippos_analyst maintain --date YYYY-MM-DD --max-requests 40
+python -m hippos_analyst.background --continuous --delay 15 --daily-budget 500 --db data/hippos.sqlite3
 ```
 
-The date must be the current Helsinki date. One shared worker lock spans all
-phases: at most 20 refresh, 10 profile and 10 historical requests, at 30-second
-spacing and within the unchanged 200-attempt UTC daily budget. Unused phase shares
-are not spent elsewhere. A full wake-up takes about 20 minutes; do not start
-another run to consume unused budget.
+The running windowless worker uses the same command with `pythonw.exe`. It holds
+the shared lock for its whole lifetime and processes repeated batches of at most
+20 refresh, ten profile and ten history requests, without an hourly delay.
+The next request still respects spacing across batch boundaries. It waits until
+the next UTC day when the cap is reached. No unused phase share is borrowed.
 
-The rolling refresh window is three days back through seven days ahead. A
-successful calendar/list/field becomes eligible again after 24 hours; pending
-cooldowns and failures are preserved. Profile discovery adds at most five known
-participant roots per Helsinki day once pending profiles finish, with at most
-two ancestor generations. Completed profiles are not automatically refreshed.
+Refresh covers three days back through seven ahead, with a 24-hour minimum age.
+Profiles remain limited to five new participant roots per Helsinki day and two
+ancestor generations. Completed profiles are not automatically refreshed, and
+ancestor stubs never become new roots. History walks backward one month at a time
+from October 2026; twelve consecutive empty historical months persist a stop.
+The isolated October 2025 sample cannot skip intervening history.
 
-History has a separate queue and request share, so recurring refresh work cannot
-starve it. Check its frontier before seeding refresh work. Start at October 2026,
-fill missing dates, then step backward one month at a time. All discovered racing
-jobs need a successful observation; pending refreshes do not erase earlier
-coverage. Stop expansion after twelve consecutive empty months. See
-[maintenance details and limitations](collection.md#scheduled-maintenance-25-october-2026).
+Provider objections, access refusals, rate limits, redirects, schema changes and
+failed jobs stop the worker. It never clears a stop or retries a failed-status job.
+Transient failures end the pass; the worker waits at least 60 seconds and until
+Retry-After/cooldown expires before a new pass. Five consecutive transient failures
+persist a stop. Empty work queues sleep rather than busy-looping.
 
-Local scheduled work requires the computer on, the app running, and this folder
-available, as described in the [official scheduled-task documentation](https://learn.chatgpt.com/docs/automations?surface=app).
-Network approval remains subject to the normal execution controls. A scheduled
-run requiring unavailable approval may stop without collecting; it is not a
-standalone Windows service or a guarantee of uninterrupted daily operation.
-
-Provider objections, 401/403/429, redirects and schema changes stop collection;
-the automation must pause itself for investigation. Never automatically clear
-the persistent collector stop or retry failed jobs. Transient transport/408/5xx
-failures end the current run and wake-up, preserving the service cooldown and
-Retry-After; no same-wake-up retry. The local daily ceiling is a normal stop and
-does not justify raising or resetting the limit. See [collection operations](collection.md).
-
-The schedule fills history; it does not currently refresh upcoming fields or
-revisit finished races for corrections. Those need a separately measured cadence
-sharing this budget. Future calendar dates beyond 29 October are not yet queued.
+The computer must remain running; closing Codex or the UI does not stop the worker.
+Rebooting, signing out or terminating the process ends it. It does not restart at
+sign-in. See [background operation, logs and stop controls](background.md).
+Runtime progress lives in rotating logs, completed-pass JSON and the coverage UI;
+the dated checkpoints below are historical snapshots, not a live coverage claim.
 
 ## Final checkpoint — 22 October, 21:46 Helsinki
 
@@ -1254,3 +1239,255 @@ racecards, both directories and all 200 profile views. Directories returned
 took 0.3–43.7ms for overview/calendar/racecards, 20.3ms for horses and 82.4ms for
 people. These are smoke checks, not browser/load tests; no material read-model
 regression was observed. No application code changed.
+
+
+## 1 November 2026 — midday scheduled maintenance
+
+Heartbeat at 10:00:19 UTC (12:00 Helsinki); the date derived from the current
+client timestamp in Europe/Helsinki was **2026-11-01**. Preflight found the worker
+lock free, no persistent stop, failed jobs or active cooldown, and **0/200**
+attempts used that UTC day. The previous batch had exited October 31 at 18:16 UTC.
+Ran exactly one approved command:
+`python -u -m hippos_analyst maintain --date 2026-11-01 --max-requests 40`.
+
+- Planning queued 33 refresh jobs and no new profile roots because profiles were
+  pending. No historical month was seeded because history was pending. The rolling
+  refresh window now spans October 29 through November 8.
+- **40 successful requests**: 20 refresh, ten profiles and ten history.
+  Request IDs **1162–1201** ran from **10:00:54 to 10:20:24 UTC**; the command
+  exited successfully. Refresh covered November 1 Joensuu's 11 remaining queued
+  fields, plus the November 2 Kaustinen race list and eight fields. Other refreshes
+  remain queued; not all fields have the same observation time.
+- History finished September 27's seven remaining PX fields, then collected
+  the Y 17-race list and fields 1 and 10, adding **55 entries**. Fifteen Y fields
+  remain unobserved on September 27; September 1–26 calendars remain unobserved.
+  September 28–30 retain observations of all their discovered fields.
+- **40 meetings, 496 races, 5,045 entries and 3,019 horse identities**, including
+  ancestor stubs; **210 profiles**, 157 owner relationships, 150 breeder
+  relationships and 420 parent links.
+- **1,201 total attempts, 1,017 snapshots, 40/200 attempts today**. Queue:
+  **747 completed, 88 pending** (38 calendars, two race lists, 42 fields and
+  six profiles). No failed jobs, provider stops or active cooldown; the expired
+  cooldown value was preserved. Minimum request-start spacing was
+  **30.00009 seconds**. The worker released its lock. No second batch, manual
+  seeds, resets, completed-profile refreshes or Toto polling followed.
+- October remains the one contiguous observed month: all 31 calendars,
+  31 discovered race lists and 382 fields have successful observations.
+  November 1–2 retain all discovered fields observed; November 3–8 calendars
+  remain unobserved. No additional month completed; consecutive empty historical
+  months remain zero. The isolated October 2025 sample remains separate.
+  Observations do not establish complete final results or horse histories.
+- SQLite integrity `ok`, zero foreign-key violations and **all 1,017 snapshot
+  hashes verified**.
+
+Read-only UI checks passed for overview, calendar, current/new-historical/older
+racecards, both directories and all 210 profile views. Directories returned
+3,019 horses and 2,331 people/party-role records. In-process read-plus-JSON samples
+took 2.7–98.2ms for overview/calendar/racecards, 35.2ms for horses and 159.7ms for
+people. These are single-run smoke timings, not browser/load tests or a controlled
+performance comparison; no functional read-model regression was observed.
+No application code changed.
+
+
+## 1 November 2026 — afternoon interruption reconciled on 2 November
+
+The 14:18:20 UTC wake-up launched one approved maintenance batch for November 1.
+Its tool wait was interrupted before completion was observed. The next wake-up
+found the worker lock free, with **25 committed successful requests** (IDs
+1202–1226), no incomplete request records, failed jobs, provider stop or active
+cooldown. The ledger spans **14:18:49–14:30:49 UTC**, with minimum request-start
+spacing **30.00017 seconds**. A successful process exit was not observed, so this
+is recorded as a partial run, not a completed 40-request batch.
+
+The ledger contains 20 refresh and five profile requests, with no history requests.
+Refresh covered November 1 Joensuu's race list, five fields and calendar;
+November 2 Kaustinen's four remaining fields and calendar; and October 31 Lahti's
+race list and seven fields. Planning had queued 20 refresh jobs and no profile
+roots or historical month. The resulting preflight state on November 2 was
+**40 meetings, 496 races, 5,045 entries, 3,024 horse identities, 215 profiles,
+317 party relationships, 430 parent links, 1,033 snapshots and 1,226 requests**.
+There were 752 completed and 85 pending jobs; November 1 used 65/200 attempts.
+No failed job was reset or retried. Integrity and read-model checks below cover
+this retained data together with the subsequent batch.
+
+## 2 November 2026 — morning scheduled maintenance
+
+Heartbeat at 07:48:51 UTC (09:48 Helsinki); the date derived from the current
+client timestamp in Europe/Helsinki was **2026-11-02**. Preflight found the worker
+lock free, no persistent stop, failed jobs or active cooldown, and **0/200**
+attempts used that UTC day. Ran exactly one approved command:
+`python -u -m hippos_analyst maintain --date 2026-11-02 --max-requests 40`.
+
+- Planning queued nine refresh jobs and no new profile roots because profiles
+  were pending. No historical month was seeded because history was pending.
+  The rolling refresh window spans October 30 through November 9.
+- **35 successful requests**: 20 refresh, five remaining profiles and ten history.
+  The unused five profile requests were not borrowed. Request IDs **1227–1261**
+  ran from **07:49:28 to 08:06:28 UTC**; the command exited successfully.
+- Refresh discovered November 3 Tampere's calendar, race list and all 12 fields,
+  then observed October 31 Lahti's five remaining queued fields and calendar.
+  History collected ten more September 27 Y fields; five remain unobserved.
+  The archive gained **211 entries** across the upcoming and historical fields.
+- **41 meetings, 508 races, 5,256 entries and 3,090 horse identities**, including
+  ancestor stubs; **220 profiles**, 167 owner relationships, 160 breeder
+  relationships and 440 parent links. No profiles remain pending.
+- **1,261 total attempts, 1,063 snapshots, 35/200 attempts today**. Queue:
+  **779 completed, 74 pending** (37 calendars, two race lists and 35 fields).
+  No failed jobs, provider stops or active cooldown; the expired cooldown value
+  was preserved. Minimum request-start spacing was **30.00009 seconds**.
+  The worker released its lock. No second batch, manual seeds, resets,
+  completed-profile refreshes or Toto polling followed.
+- October remains the one contiguous observed month: all 31 calendars,
+  31 discovered race lists and 382 fields have successful observations.
+  November 1–3 have all discovered fields observed; November 4–9 calendars
+  remain unobserved. September 28–30 retain observations of all discovered
+  fields; September 27 still needs five Y fields and September 1–26 calendars
+  remain unobserved. No additional month completed; consecutive empty historical
+  months remain zero. The isolated October 2025 sample remains separate.
+  Observations do not establish complete final results or horse histories.
+- SQLite integrity `ok`, zero foreign-key violations and **all 1,063 snapshot
+  hashes verified**.
+
+Read-only UI checks passed for overview, calendar, current/new-upcoming/new-historical/
+older racecards, both directories and all 220 profile views. Directories returned
+3,090 horses and 2,393 people/party-role records. In-process read-plus-JSON samples
+took 0.9–53.7ms for overview/calendar/racecards, 24.5ms for horses and 114.0ms for
+people. These are smoke checks, not browser/load tests; no material read-model
+regression was observed. No application code changed.
+
+
+## 2 November 2026 — midday scheduled maintenance
+
+Heartbeat at 10:03:23 UTC (12:03 Helsinki); the date derived from the current
+client timestamp in Europe/Helsinki was **2026-11-02**. Preflight found the worker
+lock free, no persistent stop, failed jobs or active cooldown, and **35/200**
+attempts used that UTC day. The previous batch had exited at 08:06 UTC. Ran
+exactly one approved command:
+`python -u -m hippos_analyst maintain --date 2026-11-02 --max-requests 40`.
+
+- Planning queued six refresh jobs and five known-participant profile roots,
+  bounded to two ancestor generations. No profiles were pending; the persisted
+  seed day was October 31. No historical month was seeded because history was
+  pending. The rolling refresh window remains October 30 through November 9.
+- **40 successful requests**: 20 refresh, ten profiles and ten history.
+  Request IDs **1262–1301** ran from **10:03:52 to 10:23:22 UTC**; the command
+  exited successfully. Refresh observed six November 1 Joensuu fields, discovered
+  the November 4 Vermo calendar/race list and all ten fields, then observed two
+  October 30 Oulu fields. Other refreshes remain pending.
+- History finished September 27 Y's final five fields, then observed September
+  26's calendar, Tampere's 13-race list and fields 1, 10 and 11. Ten Tampere
+  fields and September 1–25 calendars remain unobserved. The archive gained
+  **208 entries** across upcoming and historical fields.
+- **43 meetings, 531 races, 5,464 entries and 3,136 horse identities**, including
+  ancestor stubs; **230 profiles**, 174 owner relationships, 168 breeder
+  relationships and 460 parent links.
+- **1,301 total attempts, 1,103 snapshots, 75/200 attempts today**. Queue:
+  **813 completed, 87 pending** (35 calendars, two race lists, 38 fields and
+  12 profiles). No failed jobs, provider stops or active cooldown; the expired
+  cooldown value was preserved. Minimum request-start spacing was
+  **30.00010 seconds**. The worker released its lock. No second batch, manual
+  seeds, resets, completed-profile refreshes or Toto polling followed.
+- October remains the one contiguous observed month: all 31 calendars,
+  31 discovered race lists and 382 fields have successful observations.
+  November 1–4 have all discovered fields observed; November 5–9 calendars
+  remain unobserved. September 27–30 have all discovered fields observed.
+  No additional month completed; consecutive empty historical months remain zero.
+  The isolated October 2025 sample remains separate. Observations do not establish
+  complete final results or horse histories.
+- SQLite integrity `ok`, zero foreign-key violations and **all 1,103 snapshot
+  hashes verified**.
+
+Read-only UI checks passed for overview, calendar, current/new-upcoming/new-historical/
+older racecards, both directories and all 230 profile views. Directories returned
+3,136 horses and 2,419 people/party-role records. In-process read-plus-JSON samples
+took 0.7–51.1ms for overview/calendar/racecards, 31.2ms for horses and 93.8ms for
+people. These are smoke checks, not browser/load tests; no material read-model
+regression was observed. No application code changed.
+
+
+## 2 November 2026 — afternoon scheduled maintenance
+
+Heartbeat at 14:01:57 UTC (16:01 Helsinki); the date derived from the current
+client timestamp in Europe/Helsinki was **2026-11-02**. Preflight found the worker
+lock free, no persistent stop, failed jobs or active cooldown, and **75/200**
+attempts used that UTC day. The previous batch had exited at 10:23 UTC. Ran
+exactly one approved command:
+`python -u -m hippos_analyst maintain --date 2026-11-02 --max-requests 40`.
+
+- Planning queued 14 refresh jobs and no new profile roots because profiles were
+  pending. No historical month was seeded because history was pending. The rolling
+  refresh window remains October 30 through November 9.
+- **40 successful requests**: 20 refresh, ten profiles and ten history.
+  Request IDs **1302–1341** ran from **14:02:36 to 14:22:06 UTC**; the command
+  exited successfully. Refresh observed November 2 Kaustinen's race list and
+  eight fields, five November 1 Joensuu fields, and October 30 Oulu's calendar,
+  race list and four fields. Other refreshes remain pending.
+- History finished September 26 Tampere's remaining ten fields, adding
+  **116 entries**. September 26–30 now have all discovered fields observed;
+  September 1–25 calendars remain unobserved. No further historical month was seeded.
+- **43 meetings, 531 races, 5,580 entries and 3,172 horse identities**, including
+  ancestor stubs; **240 profiles**, 180 owner relationships, 173 breeder
+  relationships and 480 parent links.
+- **1,341 total attempts, 1,138 snapshots, 115/200 attempts today**. Queue:
+  **839 completed, 67 pending** (34 calendars, one race list, 24 fields and
+  eight profiles). No failed jobs, provider stops or active cooldown; the expired
+  cooldown value was preserved. Minimum request-start spacing was
+  **30.00015 seconds**. The worker released its lock. No second batch, manual
+  seeds, resets, completed-profile refreshes or Toto polling followed.
+- October remains the one contiguous observed month: all 31 calendars,
+  31 discovered race lists and 382 fields have successful observations.
+  November 1–4 have all discovered fields observed; November 5–9 calendars
+  remain unobserved. No additional month completed; consecutive empty historical
+  months remain zero. The isolated October 2025 sample remains separate.
+  Observations do not establish complete final results or horse histories.
+- SQLite integrity `ok`, zero foreign-key violations and **all 1,138 snapshot
+  hashes verified**.
+
+Read-only UI checks passed for overview, calendar, current/new-historical/older
+racecards, both directories and all 240 profile views. Directories returned
+3,172 horses and 2,441 people/party-role records. In-process read-plus-JSON samples
+took 0.7–50.2ms for overview/calendar/racecards, 21.9ms for horses and 93.7ms for
+people. These are smoke checks, not browser/load tests; no material read-model
+regression was observed. No application code changed.
+
+
+## 2 November 2026 — moved collection out of Codex
+
+At the owner's request, installed the per-user Windows task **Hippos Analyst
+Collector**, starting immediately at approximately 17:07 Helsinki and repeating
+hourly and at sign-in. Verified the windowless Python action, absolute archive
+path, normal user privilege level, hourly/sign-in triggers and overlapping-start
+protection. Codex's delete operation reported the former heartbeat already absent;
+its automation directory is also absent. No replacement Codex automation was created.
+
+The live background process successfully fetched its first seven requests with no
+provider stop. This is an in-progress launch verification, not a claim that its
+full pass has completed. It retains the existing shared ledger (115 attempts used
+before launch), daily cap, worker lock and request spacing. Runtime progress is
+now recorded in the rotating log and completed-pass JSON described in
+[background operation](background.md); the UI remains the live coverage source.
+
+128 Python tests and 30 frontend tests passed. A separate real `pythonw.exe` test
+against a temporary paused archive returned the expected blocked exit code,
+preserved the pause, wrote log/status output and sent zero requests. No upstream
+limits were raised and no existing jobs, cooldowns or pauses were reset.
+
+
+## 2 November 2026 — corrected to a standalone continuous worker
+
+The owner explicitly rejected sign-in scheduling and requested a continuously
+running process, shorter spacing and a larger cap. Removed the Windows task and
+its installer, stopped its previous process, and verified the shared lock was
+free before launching the replacement. The old pass ended after request 1357,
+which was successfully saved; no provider pause or failed job existed.
+
+Started `pythonw -m hippos_analyst.background --continuous --delay 15 --daily-budget 500`
+at approximately 17:18 Helsinki, PID 38492. The process is independent of Codex,
+with no schedule, service or automatic sign-in/reboot restart. Its first live
+request succeeded using the existing daily ledger (132/500); no counts were reset.
+The worker is intentionally left running. Runtime progress continues in its log.
+
+133 Python tests passed, including continuous batches at 15-second spacing,
+daily-budget sleep and UTC-midnight recovery without deleting ledger entries,
+lock retention while waiting, manual-stop handling, Retry-After and persistent
+provider/schema stops. Manual bounded maintenance retains its previous defaults.

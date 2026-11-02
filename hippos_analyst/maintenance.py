@@ -46,6 +46,8 @@ def prepare(db, today, now):
         raise ValueError('Investigate failed jobs before scheduling more work')
     # Check the historical frontier before adding this wake-up's refresh work.
     history = seed_history(db)
+    if history.get('reason') == 'twelve_empty_months':
+        return {'refresh': 0, 'profiles': 0, 'history': history}
     refresh = 0
     for offset in range(-3, 8):
         day = (today+timedelta(days=offset)).isoformat()
@@ -65,10 +67,13 @@ def prepare(db, today, now):
     return {'refresh':refresh,'profiles':profiles,'history':history}
 
 
-def run(db, today, *, max_requests=40, clock=time.time, sleep=time.sleep, fetch=None, emit=print):
+def run(db, today, *, max_requests=40, delay=30, daily_budget=200,
+        clock=time.time, sleep=time.sleep, fetch=None, emit=print):
     """Caller holds worker_lock throughout all phases. No background child worker."""
     if not 4 <= max_requests <= 40:
         raise ValueError('Maintenance permits 4–40 requests per wake-up')
+    if not 15 <= delay <= 3600 or not 1 <= daily_budget <= 500:
+        raise ValueError('Maintenance requires 15–3600 second spacing and a 1–500 daily budget')
     state = db.execute('SELECT * FROM control').fetchone()
     if state['paused_reason']:
         emit('Collection remains paused; no work scheduled.')
@@ -78,18 +83,23 @@ def run(db, today, *, max_requests=40, clock=time.time, sleep=time.sleep, fetch=
     if db.execute("SELECT 1 FROM jobs WHERE status='failed' LIMIT 1").fetchone():
         return 'failed'
     now = clock()
-    if db.execute('SELECT count(*) FROM requests WHERE started_at>=?',(now-now%86400,)).fetchone()[0] >= 200:
+    if db.execute('SELECT count(*) FROM requests WHERE started_at>=?',(now-now%86400,)).fetchone()[0] >= daily_budget:
         emit('Combined daily budget reached; no work scheduled.')
         return 'budget'
     with db:
         plan = prepare(db,today,now)
     emit(json.dumps(plan))
+    if plan['history'].get('reason') == 'twelve_empty_months':
+        with db:
+            db.execute("UPDATE control SET paused_reason=? WHERE id=1",
+                       ('Twelve empty historical months; investigate depth before resuming',))
+        return 'paused'
     # Dedicated shares prevent a full refresh queue from starving profiles/history.
     refresh = max_requests//2
     profiles = max_requests//4
     for queue, limit in [('refresh',refresh),('profiles',profiles),('history',max_requests-refresh-profiles)]:
         emit(f'Processing {queue}: at most {limit} requests')
-        result = collector.run(db,queue=queue,max_requests=limit,delay=30,daily_budget=200,
+        result = collector.run(db,queue=queue,max_requests=limit,delay=delay,daily_budget=daily_budget,
                                clock=clock,sleep=sleep,fetch=fetch,emit=emit)
         if result not in ('idle','limit'):
             return result

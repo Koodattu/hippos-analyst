@@ -34,9 +34,10 @@ worker, 15 seconds between requests, 25 requests per run and 500 per UTC day.
 
 Read [collection operations](docs/collection.md) before expanding collection,
 including the recorded Hippos robots restriction and persistent stop behaviour.
-The local database is ignored by Git. This workspace has a bounded scheduled chat
-automation; see [the active policy and checkpoint](docs/backfill.md). Cloning the
-repository does not install that automation.
+The local database is ignored by Git. This workspace uses a continuously running local
+worker, independent of Codex. See [background operation and controls](docs/background.md)
+and [the collection checkpoint](docs/backfill.md). Cloning the repository does
+not start the worker; there is no Windows task or sign-in trigger.
 
 [Documentation index](docs/README.md) · [API findings](docs/api-research.md) ·
 [Architecture](docs/architecture.md) · [Roadmap](docs/roadmap.md)
