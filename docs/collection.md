@@ -4,8 +4,8 @@ Run commands from the repository root with Python 3.11+. No installation needed.
 `--db` is a global option and must appear before the subcommand. The default is
 `data/hippos.sqlite3`, excluded from Git.
 
-The current [backfill policy](backfill.md) uses explicit 30-second spacing,
-200 attempts per UTC day and four bounded maintenance wake-ups per day. The CLI defaults
+The current [backfill policy](backfill.md) uses a standalone continuous worker,
+15-second spacing and 1,000 attempts per UTC day (requested on 3 November 2026). The CLI defaults
 below remain available; historical run notes describe their settings at that time.
 
 Optional [Veikkaus Toto enrichment](toto.md) uses `seed-toto` and `run-toto`.
@@ -33,7 +33,8 @@ unless `--refresh` is specified. A seed command accepts up to 366 days.
 - One worker per database; only validated public Hippos racing paths are allowed.
 - Default 15 seconds between request starts, including across runs. Minimum 10.
 - Default maximum 25 requests per run; default 500 per UTC day, persisted in SQLite.
-  Both budgets can be lowered; neither can exceed 500. Use one database for the
+  Both budgets can be lowered; per-run requests cannot exceed 500 and the Hippos
+  daily budget cannot exceed 1,000. Use one database for the
   provider so the ledger includes all normal collection work.
 - These are project-selected conservative limits, **not Hippos-approved limits**.
 - No automatic redirect following, cookies, login, proxy rotation or bypass of blocks.
@@ -214,7 +215,7 @@ schedule argument. The command holds the existing worker lock through planning
 and all three collection phases. It has no background subprocesses and does not
 clear pauses, reset budgets or retry failed jobs. The bounded CLI defaults to 30-second
 spacing and 200 combined attempts per UTC day. The continuous worker now uses
-the owner-approved 15-second spacing and 500-attempt daily cap. Any failed job now blocks both
+the owner-approved 15-second spacing and 1,000-attempt daily cap. Any failed job now blocks both
 ordinary providers and maintenance until investigated.
 
 Each wake-up permits at most 20 refresh, 10 profile and 10 historical requests.
@@ -248,7 +249,7 @@ another month's seeds; twelve consecutive observed empty months stop expansion
 for investigation. Profile completion never establishes racing-history coverage.
 
 The owner replaced the Windows schedule with a standalone continuous worker on
-2 November 2026. It runs immediately with `--continuous --delay 15 --daily-budget 500`,
+2 November 2026. It runs immediately with `--continuous --delay 15 --daily-budget 1000`,
 without a sign-in trigger, OS service or Codex automation. It keeps the shared lock
 for its lifetime, calculates the current Helsinki date per pass, records rotating
 logs/status and checks SQLite integrity. It continues between batches without

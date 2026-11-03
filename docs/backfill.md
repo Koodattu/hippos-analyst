@@ -39,14 +39,14 @@ Report coverage as observed snapshots, never a verified copy of the provider.
 
 ## Active operating policy
 
-At the owner's explicit request on 2 November, use one standalone continuous
-worker with **15-second request spacing and 500 combined attempts per UTC day**.
+At the owner's explicit request, with the daily cap raised on 3 November, use one standalone continuous
+worker with **15-second request spacing and 1,000 combined attempts per UTC day**.
 These are local ceilings, not provider-approved limits. The ledger is never reset.
 The Windows hourly/sign-in task was stopped and removed, and its installer was
 removed from the repository. There is no OS schedule, service or Codex heartbeat.
 
 ```powershell
-python -m hippos_analyst.background --continuous --delay 15 --daily-budget 500 --db data/hippos.sqlite3
+python -m hippos_analyst.background --continuous --delay 15 --daily-budget 1000 --db data/hippos.sqlite3
 ```
 
 The running windowless worker uses the same command with `pythonw.exe`. It holds
@@ -1491,3 +1491,24 @@ The worker is intentionally left running. Runtime progress continues in its log.
 daily-budget sleep and UTC-midnight recovery without deleting ledger entries,
 lock retention while waiting, manual-stop handling, Retry-After and persistent
 provider/schema stops. Manual bounded maintenance retains its previous defaults.
+
+
+## 3 November 2026 — restarted with 1,000-attempt daily cap
+
+The owner explicitly requested another start and a 1,000-attempt daily budget.
+Preflight found a free worker lock, no persistent stop or failed jobs, an expired
+cooldown left unchanged, and zero attempts today. The prior process's final
+recorded request (1698) succeeded yesterday. The archive held 69 meetings,
+754 races, 7,821 entries, 3,624 horse identities and 251 profiles at this checkpoint.
+
+Started the standalone windowless worker at 12:51 Helsinki, PID 48664, using
+`--continuous --delay 15 --daily-budget 1000`. Its first response was successfully
+saved. No Windows schedule, sign-in trigger, service or Codex automation was added.
+No ledger records, pauses or jobs were reset. Provider-stop protections, profile
+bounds, refresh age and Toto's separate stricter limits are unchanged.
+
+135 Python tests passed, including an integration test that starts with 999
+persisted attempts, permits exactly one more, blocks a restarted pass that day,
+and preserves the ledger when the next day becomes eligible. Values above 1,000
+are rejected; Toto's existing budget guard still rejects the larger budget.
+The worker is left running; current progress is in the log and coverage UI.

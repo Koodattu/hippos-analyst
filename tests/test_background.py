@@ -7,7 +7,7 @@ from datetime import datetime
 from pathlib import Path
 from unittest.mock import patch
 
-from hippos_analyst import api, background, collector, store
+from hippos_analyst import api, background, collector, maintenance, store
 from test_collector import Clock, response
 
 
@@ -56,6 +56,32 @@ class BackgroundTests(unittest.TestCase):
         self.assertEqual(self.run_worker(lambda _: self.fail('Budget exceeded')), 'budget')
         self.assertEqual(self.db.execute('SELECT count(*) FROM requests').fetchone()[0], 200)
         self.assertEqual(self.db.execute('SELECT count(*) FROM jobs').fetchone()[0], 0)
+
+    def test_thousand_attempt_cap_is_enforced_across_restarts(self):
+        with self.db:
+            for _ in range(999):
+                self.db.execute("INSERT INTO requests(path,started_at) VALUES('test',?)", (self.clock(),))
+        calls = []
+        options = dict(delay=15, daily_budget=1000, clock=self.clock,
+                       sleep=self.clock.sleep, emit=lambda _: None)
+        result = background.run(self.path, fetch=lambda path: (calls.append(path) or response([])), **options)
+        self.assertEqual(result, 'budget')
+        self.assertEqual(len(calls), 1)
+        self.assertEqual(self.db.execute('SELECT count(*) FROM requests').fetchone()[0], 1000)
+        self.assertEqual(background.run(self.path, fetch=lambda _: self.fail('Cap bypassed'), **options), 'budget')
+        self.clock.now += 86400
+        self.assertEqual(background.run(self.path, fetch=lambda _: api.Response(403), **options), 'paused')
+        self.assertEqual(self.db.execute('SELECT count(*) FROM requests').fetchone()[0], 1001)
+
+    def test_budget_ceiling_and_toto_limits_remain_bounded(self):
+        for call in [lambda: background.run(self.path, daily_budget=1001),
+                     lambda: maintenance.run(self.db, '2026-11-03', daily_budget=1001),
+                     lambda: collector.run(self.db, daily_budget=1001),
+                     lambda: collector.run(self.db, provider='toto', delay=60,
+                                           max_requests=1, daily_budget=1000)]:
+            with self.assertRaises(ValueError):
+                call()
+        self.assertEqual(self.db.execute('SELECT count(*) FROM requests').fetchone()[0], 0)
 
     def test_refusal_and_schema_stop_future_invocations(self):
         for status, payload in [(403, None), (429, None), (302, None), (200, {})]:

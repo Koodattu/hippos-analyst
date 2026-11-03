@@ -10,13 +10,13 @@ be started again manually after reboot, sign-out or termination.
 Foreground (Ctrl+C stops it):
 
 ```powershell
-python -m hippos_analyst.background --continuous --delay 15 --daily-budget 500 --db data/hippos.sqlite3
+python -m hippos_analyst.background --continuous --delay 15 --daily-budget 1000 --db data/hippos.sqlite3
 ```
 
 Windowless, from this workspace:
 
 ```powershell
-$workerProcess = Start-Process -FilePath 'C:\Python311\pythonw.exe' -WindowStyle Hidden -PassThru -WorkingDirectory 'E:\Projektit\hippos-analyst' -ArgumentList '-m hippos_analyst.background --continuous --delay 15 --daily-budget 500 --db "E:\Projektit\hippos-analyst\data\hippos.sqlite3"'
+$workerProcess = Start-Process -FilePath 'C:\Python311\pythonw.exe' -WindowStyle Hidden -PassThru -WorkingDirectory 'E:\Projektit\hippos-analyst' -ArgumentList '-m hippos_analyst.background --continuous --delay 15 --daily-budget 1000 --db "E:\Projektit\hippos-analyst\data\hippos.sqlite3"'
 $workerProcess.Id
 ```
 
@@ -26,8 +26,8 @@ through batch boundaries, idle sleeps, cooldowns and daily-budget waits.
 
 ## Limits and behaviour
 
-- **15 seconds** minimum between request starts and **500 attempts per UTC day**,
-  explicitly selected after the owner's request for shorter spacing and a higher cap.
+- **15 seconds** minimum between request starts and **1,000 attempts per UTC day**,
+  explicitly raised from 500 on 3 November at the owner's request.
   Attempts already made today, including failures, count toward this cap.
 - Repeated batches permit up to 20 refresh, ten profile and ten history requests.
   There is no hourly delay between batches and no borrowing unused phase shares.
@@ -76,9 +76,9 @@ failed jobs still require individually reviewed retries. No auto-restart exists.
 
 ## Verification
 
-133 Python tests passed. Coverage includes actual local wrapper passes with fake
+135 Python tests passed. Coverage includes actual local wrapper passes with fake
 upstream responses, Helsinki date rollover, 15-second spacing across multiple
-passes, a second process blocked by the lock, 500-attempt exhaustion, UTC-midnight
+passes, a second process blocked by the lock, 500- and 1,000-attempt exhaustion, UTC-midnight
 recovery without resetting the ledger, lock retention during waits, operator stop,
 Retry-After, 403/429/redirect/schema stops, failed jobs and unexpected local errors.
 The twelve-empty-month test verifies no request or new scheduling at that boundary.
