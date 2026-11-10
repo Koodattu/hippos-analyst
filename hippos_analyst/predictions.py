@@ -96,11 +96,11 @@ def comparison(groups, probabilities):
         meetings[g['key'][:2]].append(-math.log(max(p[w],1e-15))+math.log(baseline[w]))
     blocks, rng = list(meetings.values()), random.Random(42)
     draws = []
-    for _ in range(500):
+    for _ in range(500 if blocks else 0):
         values = [v for block in rng.choices(blocks, k=len(blocks)) for v in block]
         draws.append(sum(values)/len(values))
     draws.sort()
-    result['log_loss_delta_vs_form_95pct'] = [draws[12], draws[487]]
+    result['log_loss_delta_vs_form_95pct'] = [draws[12], draws[487]] if draws else None
     return result
 
 
@@ -176,8 +176,13 @@ def train(database):
               'trees': model.tree_count_, 'excluded': excluded, 'experimental': True,
               'evaluation': 'retrospective_event_time; latest backfilled records, not historical knowledge',
               'splits': {k: {'start': v[0]['key'][0], 'end': v[-1]['key'][0], 'races': len(v),
-                             'runners': sum(len(g['x']) for g in v)} for k,v in splits.items()},
+                             'runners': sum(len(g['x']) for g in v),
+                             'disciplines': {d:sum(features.discipline(g['race'])==d for g in v)
+                                             for d in ('sulky','monte')}} for k,v in splits.items()},
               'test': comparison(test, probabilities),
+              'by_discipline': {d: comparison([g for g in test if features.discipline(g['race'])==d],
+                            [p for g,p in zip(test,probabilities) if features.discipline(g['race'])==d])
+                           for d in ('sulky','monte')},
               'by_breed': {breed: metrics([g for g in test if g['race']['eventType']==breed],
                             [p for g,p in zip(test,probabilities) if g['race']['eventType']==breed])
                            for breed in sorted({g['race']['eventType'] for g in test})}}

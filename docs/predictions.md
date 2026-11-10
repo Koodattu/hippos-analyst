@@ -7,6 +7,61 @@ Unsupported races, missing forecasts, changed fields and stale inputs are explic
 Historical test predictions are labelled **Historiallinen testi**, never presented
 as forecasts saved before the race. Neither training nor prediction contacts a provider.
 
+## Current model: monté and sulky — 10 November 2026
+
+Active artifact: `data/models/20261110T151025Z-c251a9a4`, feature version **3**.
+The earlier checkpoints below remain historical. Warmblood/coldblood TOTO monté
+and sulky races are now supported; pony, trial, unknown-discipline and ambiguous
+result fields remain excluded. No collection endpoints or budgets changed.
+
+One pooled CatBoost model uses discipline as a categorical feature, general horse
+form plus discipline-specific horse form, rider/driver and trainer history.
+Comparable times use only the same discipline, breed, start method and distance
+band. All histories still exclude the target date and future dates. Scratches
+receive no probability, and known disqualified starters remain non-winners.
+
+| Block | Sulky races | Monté races |
+| --- | ---: | ---: |
+| Train, through 26 August | 990 | 47 |
+| Tune, 27 August–23 September | 239 | 11 |
+| Calibrate, 24 September–11 October | 162 | 6 |
+| Test, 12 October–9 November | 232 | 7 |
+
+Monté top picks won **3/7** tests (42.9%); log loss 2.2358 versus 2.3036 for recent
+form and 1.8843 for final market odds. Seven races are insufficient for a reliable
+accuracy estimate. The paired monté log-loss difference versus form has a 95%
+meeting-bootstrap interval of approximately [-0.485, 0.414], crossing zero.
+Sulky top picks won 58/232 (25.0%). Different archive cohorts and repeated model
+development mean these are experimental retrospective results, not a fresh
+independent validation or proof of improvement. Final odds are benchmarks only.
+
+The report records counts and comparisons by discipline. The racecard now shows
+only the sortable win probabilities; model explanations and evaluation details
+are kept off the calendar. The **Ennusteet** page retains evaluation metrics.
+Old prediction records remain immutable. Jokimaa 9 November race 1 has nine
+non-scratched historical probabilities summing to one. Live HTTP checks also
+verified upcoming monté forecasts for Vermo 11 November race 4 and Teivo
+15 November race 3. The restarted watcher initially generated 62 eligible forecasts.
+
+The collector remains running. Its new observations automatically update forecast
+features through `predict --watch`; they do **not** retrain the fixed model.
+To learn new weights, run `train` again, inspect the chronological and discipline
+reports, then restart the watcher with the resulting artifact. More data may help,
+but improvement is not guaranteed. No automatic retraining or startup service was
+added. Current model path: `data/prediction-current-model.txt`.
+
+Verification: **163 Python and 36 JavaScript tests passed**, plus JavaScript syntax
+checking and live HTTP/browser checks of probabilities, scratches, monté-specific
+evaluation and historical labels. The browser reported no console errors.
+The local server runs on port 8766 (PID 49420); forecast launcher PID 31652.
+
+```powershell
+.\.venv\Scripts\python.exe -m hippos_analyst.predictions predict --model data/models/20261110T151025Z-c251a9a4 --watch
+```
+
+This watcher is already running; do not start a duplicate. Collector PID 56060
+was left uninterrupted. The race-field parser repair continues separately.
+
 ## Model and first evaluation
 
 Version: `20261110T140810Z-d011870b`, CatBoost 1.2.10, CPU QuerySoftMax grouped by

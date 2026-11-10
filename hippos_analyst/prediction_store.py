@@ -6,7 +6,7 @@ import time
 from contextlib import closing
 from pathlib import Path
 
-from .prediction_features import signature, supported, scheduled_at, result_reason
+from .prediction_features import signature, supported, scheduled_at, result_reason, discipline
 
 
 def path_for(database):
@@ -60,8 +60,9 @@ def read_race(archive_db, race, entries, now=None):
     now = time.time() if now is None else now
     try:
         with closing(sqlite3.connect(path.resolve().as_uri()+'?mode=ro', uri=True)) as db:
-            row = db.execute('''SELECT signature,body FROM predictions
-                WHERE date=? AND track=? AND number=? ORDER BY (mode='forecast') DESC,id DESC LIMIT 1''',
+            row = db.execute('''SELECT p.signature,p.body,m.report FROM predictions p
+                LEFT JOIN models m ON m.id=p.model_id
+                WHERE date=? AND track=? AND number=? ORDER BY (mode='forecast') DESC,p.id DESC LIMIT 1''',
                 (race['date'], str(race['trackCode']), str(race['startNumber']))).fetchone()
     except sqlite3.Error:
         return {'status': 'unavailable'}
@@ -70,6 +71,11 @@ def read_race(archive_db, race, entries, now=None):
     if row[0] != signature(race, entries):
         return {'status': 'changed_field'}
     body = json.loads(row[1])
+    report = json.loads(row[2]) if row[2] else {}
+    kind = discipline(race)
+    if kind in report.get('by_discipline', {}):
+        body['test_metrics'] = report['by_discipline'][kind]
+        body['evaluation_discipline'] = kind
     if body['mode'] == 'forecast' and now < (body['scheduled_at'] or now):
         if now-body['created_at'] > 86400 or now-body['field_observed_at'] > 86400:
             return {'status': 'stale'}

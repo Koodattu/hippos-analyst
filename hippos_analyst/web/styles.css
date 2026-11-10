@@ -21,6 +21,28 @@ body {
 html { scrollbar-gutter: stable; }
 main { overflow-anchor: none; }
 
+/* Keep native scrolling, with understated thumbs that match the archive. */
+@media (forced-colors: none) {
+  :root { --scrollbar-thumb: #879c90; --scrollbar-hover: #526f5e; }
+  .app-header { --scrollbar-thumb: #9eb6aa; --scrollbar-hover: #d5e0d9; }
+  * { scrollbar-width: thin; scrollbar-color: var(--scrollbar-thumb) transparent; }
+  @supports selector(::-webkit-scrollbar) {
+    * { scrollbar-width: auto; scrollbar-color: auto; }
+    ::-webkit-scrollbar { width: 10px; height: 10px; }
+    ::-webkit-scrollbar-track, ::-webkit-scrollbar-corner { background: transparent; }
+    ::-webkit-scrollbar-thumb {
+      background: var(--scrollbar-thumb);
+      border: 2px solid transparent;
+      background-clip: padding-box;
+      border-radius: 10px;
+      min-height: 28px;
+      min-width: 28px;
+    }
+    ::-webkit-scrollbar-thumb:hover { background-color: var(--scrollbar-hover); }
+    ::-webkit-scrollbar-button { display: none; }
+  }
+}
+
 a {
   color:inherit;
   text-decoration:none;
@@ -677,6 +699,18 @@ td small {
   font-weight:700;
 }
 
+.runner-table .place[data-podium]:not([data-podium=""]) {
+  min-width:30px;
+  min-height:28px;
+  padding:2px 6px;
+  border:1px solid;
+  border-radius:6px;
+  font-weight:750;
+}
+.runner-table .place[data-podium="1"] { background:#f4d779; color:#614600; border-color:#c8a245; }
+.runner-table .place[data-podium="2"] { background:#dce4e9; color:#354651; border-color:#a5b3bf; }
+.runner-table .place[data-podium="3"] { background:#ebc5a4; color:#673d20; border-color:#bf8c61; }
+
 .scratched td {
   color:#7a8178;
 }
@@ -1186,14 +1220,18 @@ h1 {
   background:#f7faf2;
 }
 
+.meeting-card:has(.meeting-select:is(:hover, :focus-visible)) {
+  background:#eef3e9;
+}
+
+.meeting-card:not(.selected):has(.meeting-select:is(:hover, :focus-visible)) {
+  border-color:#a3b59a;
+}
+
 .meeting-select {
   display:block;
   padding:14px 14px 9px;
   border-radius:8px;
-}
-
-.meeting-select:hover h3 {
-  text-decoration:underline;
 }
 
 .meeting-meta {
@@ -1222,18 +1260,9 @@ h1 {
   line-height:1.5;
 }
 
-.meeting-bottom {
-  display:flex;
-  flex-wrap:wrap;
-  align-items:center;
-  gap:5px;
-  font-size:10px;
-  color:var(--muted);
-}
-
-.meeting-bottom>span:last-child {
-  margin-left:auto;
-}
+.meeting-date { display:flex; align-items:center; flex-wrap:wrap; gap:6px; }
+.meeting-meta > span:last-child { white-space:nowrap; }
+.meeting-date .badge { padding:3px 5px; font-size:10px; }
 
 .quick-races {
   display:flex;
@@ -1255,8 +1284,10 @@ h1 {
   font-variant-numeric:tabular-nums;
 }
 
-.quick-races a:hover {
-  background:#e4eddd;
+.quick-races a:is(:hover, :focus-visible) {
+  color:var(--green);
+  background:#dce8d4;
+  border-color:#78936b;
 }
 
 .quick-races a[aria-current] {
@@ -1313,7 +1344,6 @@ h1 {
   gap:4px;
   padding-bottom:10px;
   margin-bottom:8px;
-  scrollbar-width:thin;
 }
 
 .race-tabs a {
@@ -1612,8 +1642,6 @@ th:last-child, td:last-child {
 .odds-cell strong { font-variant-numeric: tabular-nums; font-weight: 650; }
 .equipment { color: var(--muted); font-size: 11px; white-space: normal; }
 .scratch-note { color: #8c3c25; }
-.race-detail .table-footer { display: grid; grid-template-columns: 1fr auto; gap: 4px 12px; min-height: 76px; align-items: center; }
-.toto-status { grid-column: 1 / -1; grid-row: 2; font-size: 11px; }
 .odds-history { padding: 12px 0; }
 .odds-history h3 { margin: 0 0 8px; font-size: 14px; }
 .odds-history ul { padding: 0; margin: 0; list-style: none; }
@@ -1623,19 +1651,25 @@ th:last-child, td:last-child {
 .toto-coverage { margin: 20px 0; }
 
 /* Data workspace: compact controls, natural page flow, explicit row actions. */
-main { padding-top: 16px; }
+main { padding-top: 16px; min-height: var(--preserved-height, calc(100vh - 120px)); }
 .calendar-workspace { margin: 0; gap: 22px; grid-template-columns: 280px minmax(0,1fr); }
 .meeting-browser { align-self: stretch; min-width: 0; }
-.meeting-controls { position: sticky; top: 0; z-index: 3; background: #f5f6f2; padding: 8px 0 12px; }
-.meeting-browser-heading { margin-bottom: 8px; }
-#calendar-filter { display: grid; grid-template-columns: minmax(0,1fr) auto; gap: 8px; padding: 10px; margin: 0; }
-#calendar-filter .segmented { grid-column: 1/-1; display: flex; flex-wrap: wrap; gap: 2px; margin: 0; }
-#calendar-filter .segmented a { padding: 7px 6px; font-size: 11px; flex: 1; text-align: center; }
-.custom-dates { grid-column: 1/-1; min-width: 0; font-size: 12px; }
-.custom-dates summary { cursor: pointer; padding: 7px 0; }
-.date-fields { display: grid; grid-template-columns: 1fr; gap: 8px; margin: 6px 0; }
+.meeting-controls { position: sticky; top: 0; z-index: 3; background: #f5f6f2; padding: 0 0 8px; }
+.meeting-browser-heading { margin-bottom: 6px; gap: 6px; }
+.meeting-browser-heading h2, .meeting-browser-heading > div { flex-shrink: 0; }
+.meeting-range { min-width: 0; font-size: 11px; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+#calendar-filter { display: grid; grid-template-columns: repeat(2,minmax(0,1fr)); gap: 6px; padding: 0; margin: 0; border: 0; background: transparent; }
+#calendar-filter .segmented { grid-column: 1/-1; display: flex; gap: 2px; margin: 0; }
+#calendar-filter .segmented a { padding: 7px 6px; font-size: 11px; flex: 1; text-align: center; white-space: nowrap; }
+.custom-dates { grid-column: 1/-1; grid-row: 2; min-width: 0; font-size: 11px; }
+.custom-dates summary { cursor: pointer; margin-left: calc(50% + 3px); height: 32px; padding: 7px 6px; white-space: nowrap; }
+.date-fields { display: grid; grid-template-columns: minmax(0,1fr) minmax(0,1fr) auto; gap: 4px; margin: 6px 0 0; align-items: end; }
+.date-fields label { min-width: 0; }
+#calendar-filter .date-fields input { height: 32px; padding: 4px; font-size: 11px; }
+#calendar-filter .date-fields .button { min-width: 64px; min-height: 32px; height: 32px; padding: 4px 12px; font-size: 11px; }
 #calendar-filter input { width: 100%; min-width: 0; }
-#calendar-filter .track-filter { min-width: 0; }
+#calendar-filter .track-filter { grid-column: 1; grid-row: 2; align-self: start; position: relative; z-index: 1; min-width: 0; }
+#calendar-filter select { width: 100%; height: 32px; }
 #calendar-filter .button { align-self: end; }
 .meeting-browser .pagination { position: static; }
 .selected-heading { margin: 6px 0 10px; }
@@ -1646,6 +1680,17 @@ main { padding-top: 16px; }
 .race-heading > div { display: flex; align-items: baseline; flex-wrap: wrap; gap: 6px 14px; }
 .race-heading h2 { font-size: 21px; }
 .race-heading p { margin: 0; }
+.race-status { display: flex; flex-wrap: wrap; align-items: center; justify-content: flex-end; gap: 6px 12px; }
+.race-status .freshness { font-size: 11px; white-space: nowrap; }
+@media (min-width:1001px) {
+  html:has(.calendar-workspace) { scrollbar-gutter: auto; }
+  #app:has(.calendar-workspace) { display: flex; flex-direction: column; height: 100dvh; }
+  #app:has(.calendar-workspace) > main { flex: 1; width: 100%; max-width: none; min-height: 0; margin-block: 0; overflow: hidden; padding-right: 0; padding-bottom: 0; }
+  .calendar-workspace { height: 100%; min-height: 0; }
+  .calendar-workspace > .meeting-browser,
+  .calendar-workspace > .selected-race { height: 100%; min-height: 0; overflow-y: auto; overscroll-behavior-y: contain; scrollbar-gutter: stable; }
+}
+
 .meeting-select { padding: 10px 12px 7px; }
 .meeting-card h3 { margin-top: 5px; }
 .meeting-name { margin-bottom: 6px; }
@@ -1677,7 +1722,6 @@ tr.expanded { background: #e8f0e1; }
 .runner-preview-layout dt,.horse-facts dt { color: var(--muted); font-size: 12px; margin: 12px 0 4px; }
 .runner-preview-layout dd,.horse-facts dd { margin: 0; line-height: 1.5; overflow-wrap: anywhere; }
 .preview-summary { font-size: 12px; color: var(--muted); margin: 8px 0; }
-.race-detail .table-footer { min-height: 0; padding: 12px 14px; }
 .directory-heading { display: flex; align-items: baseline; flex-wrap: wrap; gap: 10px 18px; margin-bottom: 14px; }
 .directory-heading .page-heading { margin: 0; }
 .directory-heading h1 { margin: 0; }
@@ -1725,10 +1769,8 @@ tr.expanded { background: #e8f0e1; }
 @media (max-width:1000px) {
   .calendar-workspace { grid-template-columns:minmax(0,1fr); gap:16px; }
   .meeting-controls { position:static; }
-  #calendar-filter { grid-template-columns:minmax(0,1fr) auto; }
   #calendar-filter .segmented { justify-content:start; }
   #calendar-filter .segmented a { flex:0 1 auto; padding:8px 12px; }
-  .date-fields { grid-template-columns:1fr 1fr; }
 }
 @media (max-width:600px) {
   main { padding:12px; }
@@ -1743,6 +1785,8 @@ tr.expanded { background: #e8f0e1; }
   .summary-strip > span { flex-basis:100%; }
   th [data-sort] { min-height:44px; }
   .horse-preview > td { padding:12px; }
+  .race-heading { flex-direction:column; align-items:stretch; gap:8px; }
+  .race-status { justify-content:space-between; }
   .race-heading > div { display:block; }
   .race-heading p { margin-top:5px; }
   .activity-controls .segmented { overflow-x:auto; max-width:100%; }

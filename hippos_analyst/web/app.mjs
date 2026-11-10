@@ -2,7 +2,7 @@ import { loadSaved, toggleSaved } from './saved.mjs';
 import { trackMap } from './track-map.mjs';
 import { photoFigure, handlePhotoError } from './photos.mjs';
 import { fi as t } from './locales/fi.mjs';
-import { escapeHtml as e, localDay, addDays, route, parseRoute, dateRange, orderEntries, coverageState, kilometerTime, splitStarts, isWinner, hasResult, resultText, calendarSelection, calendarParams, calendarPage, raceOrder, horseReturnRoute, personReturnRoute, personReference, returnContext, sameView, runnerPrediction, runnerMarket, equipmentCodes, nextSort, calendarRaceRoute } from './model.mjs';
+import { escapeHtml as e, localDay, addDays, route, parseRoute, dateRange, orderEntries, coverageState, kilometerTime, splitStarts, isWinner, hasResult, resultText, calendarSelection, calendarParams, calendarPage, raceOrder, horseReturnRoute, personReturnRoute, personReference, returnContext, sameView, runnerPrediction, runnerMarket, equipmentCodes, nextSort, calendarRaceRoute, showRaceDistance, podiumPlace } from './model.mjs';
 
 const app = document.querySelector('#app');
 app.addEventListener('error', handlePhotoError, true);
@@ -77,14 +77,14 @@ async function calendarView(params) {
   const sorting = params.sort ? {sort:params.sort,dir:params.dir||'asc'} : {order:raceOrder(params)};
   const changeWeek = delta => ({ ...sorting, from: addDays(range.from, delta), to: addDays(range.to, delta), track: params.track || '' });
   return `${originBack(params.returnTo)}<h1 class="sr-only" tabindex="-1">${e(t.calendar)}</h1>
-<div class="calendar-workspace"><section class="meeting-browser" aria-label="${e(t.selectMeeting)}"><div class="meeting-controls"><div class="meeting-browser-heading"><h2>${e(t.meetingHeading)}</h2><div>${link('calendar', changeWeek(-7), icon('back') + `<span class="sr-only">${e(t.earlier)}</span>`, 'week-arrow')}${link('calendar', changeWeek(7), icon('arrow') + `<span class="sr-only">${e(t.later)}</span>`, 'week-arrow')}</div></div>
+<div class="calendar-workspace"><section class="meeting-browser" aria-label="${e(t.selectMeeting)}"><div class="meeting-controls"><div class="meeting-browser-heading"><h2>${e(t.meetingHeading)}</h2><span class="meeting-range" title="${e(dateText(range.from))}–${e(dateText(range.to))}">${e(dateText(range.from,{year:undefined}))}–${e(dateText(range.to,{year:undefined}))}</span><div>${link('calendar', changeWeek(-7), icon('back') + `<span class="sr-only">${e(t.earlier)}</span>`, 'week-arrow')}${link('calendar', changeWeek(7), icon('arrow') + `<span class="sr-only">${e(t.later)}</span>`, 'week-arrow')}</div></div>
 
-    <form id="calendar-filter" class="filters sidebar-filters"><div class="segmented">${link('calendar', { ...sorting, track: params.track || '' }, e(t.near), params.range !== 'all' && !params.from ? 'selected' : '')}${link('calendar', { ...sorting, from: addDays(today, -6), to: today, track: params.track || '' }, e(t.lastWeek))}${link('calendar', { ...sorting, range: 'all', track: params.track || '' }, e(t.archive), params.range === 'all' ? 'selected' : '')}</div>
-    <details class="custom-dates"><summary>${e(dateText(range.from,{year:undefined}))}–${e(dateText(range.to,{year:undefined}))} · ${e(t.customDates)}</summary><div class="date-fields"><label>${e(t.from)}<input name="from" type="date" value="${e(range.from)}" required></label><label>${e(t.to)}<input name="to" type="date" value="${e(range.to)}" required></label></div></details><label class="track-filter">${e(t.track)}<select name="track"><option value="">${e(t.allTracks)}</option>${Object.entries(overview.tracks).map(([code, label]) => `<option value="${e(code)}" ${code === params.track ? 'selected' : ''}>${e(label)}</option>`).join('')}</select></label><button type="submit" class="button primary">${e(t.apply)}</button></form></div>
+    <form id="calendar-filter" class="filters sidebar-filters"><div class="segmented">${link('calendar', { ...sorting, track: params.track || '' }, e(t.near), params.range !== 'all' && !params.from ? 'selected' : '')}${link('calendar', { ...sorting, from: addDays(today, -6), to: today, track: params.track || '' }, e(t.lastWeekShort))}${link('calendar', { ...sorting, range: 'all', track: params.track || '' }, e(t.archiveShort), params.range === 'all' ? 'selected' : '')}</div>
+    <label class="track-filter"><span class="sr-only">${e(t.track)}</span><select name="track"><option value="">${e(t.allTracks)}</option>${Object.entries(overview.tracks).map(([code, label]) => `<option value="${e(code)}" ${code === params.track ? 'selected' : ''}>${e(label)}</option>`).join('')}</select></label>
+    <details class="custom-dates"><summary>${e(t.customDates)}</summary><div class="date-fields"><label>${e(t.from)}<input name="from" type="date" value="${e(range.from)}" required></label><label>${e(t.to)}<input name="to" type="date" value="${e(range.to)}" required></label><button type="submit" class="button primary">${e(t.apply)}</button></div></details></form></div>
     ${pages}<div class="meeting-list">${data.meetings.map(m => {
       const selected = selection.meeting.date === m.date && selection.meeting.track === m.track;
-      const label = m.canceled ? t.canceled : m.data.hasPublishedResults ? t.results : t.racecard;
-      return `<article class="meeting-card${selected ? ' selected' : ''}"><a class="meeting-select" href="${e(route('calendar', calendarParams(params, m, m.races[0]?.number)))}" ${selected ? 'aria-current="true"' : ''}><div class="meeting-meta"><strong>${e(dateText(m.date, { weekday: 'short', year: undefined }))}</strong><span>${e(m.start_time ? t.at(m.start_time.slice(0, 5)) : t.unknown)}</span></div><h3>${e(trackName(m))}</h3><p class="meeting-name">${e(m.name || t.unknown)}</p><div class="meeting-bottom">${m.canceled || m.data.hasPublishedResults ? badge(label, m.canceled ? 'warning' : 'success') : ''}${m.date === today ? badge(t.today, 'accent') : m.date === addDays(today, 1) ? badge(t.tomorrow, 'accent') : ''}<span>${e(t.fields(m.collected_races, m.race_count))}</span></div></a>
+      return `<article class="meeting-card${selected ? ' selected' : ''}"><a class="meeting-select" href="${e(route('calendar', calendarParams(params, m, m.races[0]?.number)))}" ${selected ? 'aria-current="true"' : ''}><div class="meeting-meta"><span class="meeting-date"><strong>${e(dateText(m.date, { weekday: 'short', year: undefined }))}</strong>${m.date === today ? badge(t.today, 'accent') : m.date === addDays(today, 1) ? badge(t.tomorrow, 'accent') : ''}</span><span>${e(m.start_time ? t.at(m.start_time.slice(0, 5)) : t.unknown)}</span></div><h3>${e(trackName(m))}</h3>${m.name ? `<p class="meeting-name">${e(m.name)}</p>` : ''}${m.canceled ? badge(t.canceled, 'warning') : ''}</a>
       <div class="quick-races" aria-label="${e(t.raceHeading)}">${m.races.map(r => `<a href="${e(route('calendar', calendarParams(params, m, r.number)))}" aria-label="${e(t.directRace(r.number))}" ${selected && selection.number === r.number ? 'aria-current="true"' : ''}>${e(r.number)}</a>`).join('')}</div></article>`;
     }).join('')}</div></section><section class="selected-race" id="selected-race" aria-label="${e(t.selectedMeeting)}" tabindex="-1">${data.meetings.length ? detail : empty(t.empty, t.emptyHint, link('calendar', { ...sorting, range: 'all', track: params.track || '' }, e(t.archive), 'button'))}</section></div>`;
 }
@@ -179,7 +179,7 @@ async function meetingView(params) {
 
 function recentForm(starts = []) {
   if (!starts.length) return `<span class="muted">${e(t.noPriorForm)}</span>`;
-  return `<ol class="runner-form">${starts.map(s => `<li><strong class="${isWinner(s.data) ? 'form-win' : ''}">${e(s.absent ? t.absent : resultText(s.data, 'placing', t.unknown))}</strong><span title="${e(dateText(s.date))}">${e(dateText(s.date, {year: s.date.slice(0,4) === currentRace.meeting.date.slice(0,4) ? undefined : '2-digit'}))}</span>${s.data.startType && s.data.startType !== 'TOTO' ? `<small>${e(t.types[s.data.startType] || s.data.startType)}</small>` : ''}</li>`).join('')}</ol>`;
+  return `<ol class="runner-form">${starts.map(s => `<li><strong class="${isWinner(s.data) ? 'form-win' : ''}">${e(s.absent ? t.absent : resultText(s.data, 'placing', t.unknown))}</strong><span title="${e(dateText(s.date))}">${e(dateText(s.date, {year: s.date.slice(0,4) === currentRace.meeting.date.slice(0,4) ? undefined : '2-digit'}))}</span>${s.data.startType && !['TOTO','PAIKALLIS'].includes(s.data.startType) ? `<small>${e(t.types[s.data.startType] || s.data.startType)}</small>` : ''}</li>`).join('')}</ol>`;
 }
 
 function equipmentText(entry) {
@@ -198,15 +198,6 @@ function oddsCell(entry, toto) {
   const observed = market.history[0];
   const hint = observed ? `${t.totoObserved(timestamp(observed.observedAt))} · ${t.totoSourceTime(timestamp(observed.sourceAt))}` : t.oddsHint;
   return `<td class="numeric odds-cell" title="${e(hint)}"><strong>${e(oddsText(market.value))}</strong>${market.value !== null || observed ? `<small>${e(market.source)}</small>` : ''}${market.runner?.scratched && !entry.absent ? `<small class="scratch-note">${e(t.totoMismatch)}</small>` : ''}</td>`;
-}
-
-function totoStatus(toto) {
-  if (!toto) return '';
-  const latest = toto.observations[0];
-  const label = toto.collection_failed ? t.totoFailed : toto.match_status === 'unmatched' ? t.totoUnmatched : latest
-    ? `${t.totoTitle} · ${t.totoObserved(timestamp(latest.observed_at))}`
-    : toto.match_status === 'pending' ? t.totoPending : t.totoNoOdds;
-  return `<span class="toto-status">${e(label)}</span>`;
 }
 
 function marketHistory(id) {
@@ -236,8 +227,9 @@ function raceSort(params = parseRoute(location.hash).params) {
 
 function raceTable(entries, order = 'program', form = {}, toto = null) {
   const sort = raceSort();
-  const columns = [['number',t.number],['name',t.horse],['prediction',t.winProbability],['form',t.priorForm],['driver',t.driver],['distance',t.distance],['odds',t.winOdds],['placing',t.placing],['time',t.kmTime],['prize',t.prize]];
-  return `<div class="table-scroll" tabindex="0" role="region" aria-label="${e(t.racecard)}"><table class="runner-table"><thead><tr>${columns.map(([key,label])=>sortHeader(key,label,sort,key==='form'?t.formSort:'')).join('')}${chevronHeader}</tr></thead><tbody>${orderEntries(entries,sort,form,toto,currentRace.prediction).map(r => `<tr class="expandable ${r.absent ? 'scratched' : isWinner(r) ? 'winner' : ''}" ${disclosure('horse',r.horseId,r.horseName,currentRace.meeting.date)} data-runner="${e(r.horseId)}" data-entry="${e(JSON.stringify(r))}"><td><div class="number-cell"><span class="program-number">${e(r.programNumber)}</span></div></td><td>${link('horse',{id:r.horseId,returnTo:returnContext(location.hash)},e(r.horseName),'horse-name')}<small>${e(t.trainer)}: ${personLink(r,'trainer')}</small><small class="equipment">${e(equipmentText(r))}</small></td>${predictionCell(r,currentRace.prediction)}<td class="form-cell">${recentForm(form[r.horseId])}</td><td>${personLink(r,'driver')}</td><td class="numeric">${e(r.distance || t.unknown)}</td>${oddsCell(r,toto)}<td><span class="place ${isWinner(r)?'first':''}">${e(r.absent?t.absent:resultText(r,'placing',t.unknown))}</span></td><td class="numeric">${e(kilometerTime(r,t.unknown))}</td><td class="numeric">${hasResult(r)&&r.price!=null&&r.price!==''?`${e(r.price)} €`:t.unknown}</td>${chevronCell}</tr>`).join('')}</tbody></table></div>`;
+  const showDistance = showRaceDistance(currentRace.race, entries);
+  const columns = [['number',t.number],['name',t.horse],['prediction',t.winProbability],['form',t.priorForm],['driver',t.driver],...(showDistance ? [['distance',t.distance]] : []),['odds',t.winOdds],['placing',t.placing],['time',t.kmTime],['prize',t.prize]];
+  return `<div class="table-scroll" tabindex="0" role="region" aria-label="${e(t.racecard)}"><table class="runner-table"><thead><tr>${columns.map(([key,label])=>sortHeader(key,label,sort,key==='form'?t.formSort:'')).join('')}${chevronHeader}</tr></thead><tbody>${orderEntries(entries,sort,form,toto,currentRace.prediction).map(r => `<tr class="expandable ${r.absent ? 'scratched' : isWinner(r) ? 'winner' : ''}" ${disclosure('horse',r.horseId,r.horseName,currentRace.meeting.date)} data-runner="${e(r.horseId)}" data-entry="${e(JSON.stringify(r))}"><td><div class="number-cell"><span class="program-number">${e(r.programNumber)}</span></div></td><td>${link('horse',{id:r.horseId,returnTo:returnContext(location.hash)},e(r.horseName),'horse-name')}<small>${e(t.trainer)}: ${personLink(r,'trainer')}</small><small class="equipment">${e(equipmentText(r))}</small></td>${predictionCell(r,currentRace.prediction)}<td class="form-cell">${recentForm(form[r.horseId])}</td><td>${personLink(r,'driver')}</td>${showDistance ? `<td class="numeric">${e(r.distance || t.unknown)}</td>` : ''}${oddsCell(r,toto)}<td><span class="place" data-podium="${podiumPlace(r) ?? ''}">${e(r.absent?t.absent:resultText(r,'placing',t.unknown))}</span></td><td class="numeric">${e(kilometerTime(r,t.unknown))}</td><td class="numeric">${hasResult(r)&&r.price!=null&&r.price!==''?`${e(r.price)} €`:t.unknown}</td>${chevronCell}</tr>`).join('')}</tbody></table></div>`;
 }
 
 const percent = value => (value*100).toLocaleString('fi-FI',{maximumFractionDigits:1})+' %';
@@ -245,23 +237,13 @@ function predictionCell(entry, prediction) {
   const runner = runnerPrediction(entry,prediction);
   return `<td class="numeric prediction-cell" ${runner ? `title="${e(t.predictionHistory(runner.history_count))}"` : ''}><strong>${runner ? e(percent(runner.probability)) : e(t.unknown)}</strong></td>`;
 }
-function predictionSummary(prediction) {
-  if(prediction?.status !== 'ready') {
-    const message = prediction?.status === 'unknown_result' ? t.predictionUnknownResult : prediction?.status === 'changed_field' ? t.predictionChanged : prediction?.status === 'stale' ? t.predictionStale : prediction?.status === 'unsupported' ? t.predictionUnsupported : t.predictionMissing;
-    return `<p class="prediction-note">${e(message)}</p>`;
-  }
-  const scores = prediction.test_metrics;
-  const mode = prediction.mode === 'backtest' ? t.predictionBacktest : t.predictionForecast;
-  return `<details class="prediction-note"><summary>${e(t.predictionModel)} · ${e(mode)} · ${e(t.predictionDetails)}</summary><p>${e(prediction.mode === 'backtest' ? t.predictionTestNote : t.updated(timestamp(prediction.created_at)))}</p><p>${e(t.predictionTraining(dateText(prediction.training_end)))}</p><p>${e(t.predictionScore(scores.catboost.races,percent(scores.catboost.top_pick_rate),percent(scores.recent_form.top_pick_rate),scores.market_final_retrospective.races ? percent(scores.market_final_retrospective.top_pick_rate) : t.unknown))}</p></details>`;
-}
-
 function raceDetail(data, calendarContext = {}) {
   const {meeting:m,race:r,races,entries} = data;
   return `<div class="selected-heading"><div><h2>${e(trackName(m))}</h2><p>${e(dateText(m.date,{weekday:'long'}))} · ${e(m.name||'')}</p></div>${venueLink(m)}</div>
     ${m.canceled?badge(t.canceled,'warning'):''}<nav class="race-tabs" aria-label="${e(t.raceHeading)}">${races.map(item=>link('calendar',calendarParams(calendarContext,m,item.number),e(t.race(item.number)),item.number===r.number?'selected':'')).join('')}</nav>
-    <section class="race-detail"><div class="race-heading"><div><h2>${e(t.race(r.number))} <span>${e(r.data.plannedTime?t.at(r.data.plannedTime):'')}</span></h2><p>${e(raceMeta(r))} · ${e(r.entry_count===null?t.noUpdate:t.entries(entries.length))}</p></div>${badge(r.has_results?t.results:r.field_fetched_at?t.racecard:t.incomplete)}</div>
-    ${predictionSummary(data.prediction)}<div id="race-table">${r.field_fetched_at===null?empty(t.noField,''):!entries.length?empty(t.emptyField,''):raceTable(entries,'program',data.form,data.toto)}</div>
-    <div class="table-footer">${note(t.formHint+' '+t.resultHint+' '+t.oddsHint)}${totoStatus(data.toto)}${freshness(r.field_fetched_at)}</div></section>`;
+    <section class="race-detail"><div class="race-heading"><div><h2>${e(t.race(r.number))} <span>${e(r.data.plannedTime?t.at(r.data.plannedTime):'')}</span></h2><p>${e(raceMeta(r))} · ${e(r.entry_count===null?t.noUpdate:t.entries(entries.length))}</p></div><aside class="race-status">${badge(r.has_results?t.results:r.field_fetched_at?t.racecard:t.incomplete)}${freshness(r.field_fetched_at)}</aside></div>
+    <div id="race-table">${r.field_fetched_at===null?empty(t.noField,''):!entries.length?empty(t.emptyField,''):raceTable(entries,'program',data.form,data.toto)}</div>
+    </section>`;
 }
 
 function originBack(returnTo) {
@@ -605,14 +587,14 @@ async function render(focus = false) {
       : active.closest('.pagination') ? '.pagination' : '' };
   const datesOpen = document.querySelector('.custom-dates')?.open;
   const position = { x: window.scrollX, y: window.scrollY };
-  const regions = ['.meeting-browser', '.meeting-list', '.race-tabs', '#race-table .table-scroll'];
+  const regions = ['.meeting-browser', '.selected-race', '.meeting-list', '.race-tabs', '#race-table .table-scroll'];
   const scrolls = regions.map(selector => {
     const el = document.querySelector(selector);
     return { selector, x: el?.scrollLeft || 0, y: el?.scrollTop || 0 };
   });
   // Keep the old content while loading and enough room below the viewport to
   // preserve its position, without retaining a long directory's blank tail.
-  if (inPlace) main.style.minHeight = `${Math.max(0, position.y + window.innerHeight - main.offsetTop)}px`;
+  if (inPlace) main.style.setProperty('--preserved-height', `${Math.max(0, position.y + window.innerHeight - main.offsetTop)}px`);
   document.querySelector('#main').setAttribute('aria-busy', 'true');
   try {
     const freshOverview = await api('overview');
@@ -625,7 +607,7 @@ async function render(focus = false) {
     renderedRoute = nextRoute;
     main.innerHTML = content;
     main.removeAttribute('aria-busy');
-    if (!inPlace) main.style.minHeight = '';
+    if (!inPlace) main.style.removeProperty('--preserved-height');
     const section = ['meeting','race'].includes(name) ? 'calendar'
       : name === 'track' ? 'tracks' : name === 'horse' ? 'horses' : ['person','party'].includes(name) ? 'people' : name;
     document.querySelectorAll('.nav-link').forEach(el => {

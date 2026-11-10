@@ -121,6 +121,12 @@ export function isWinner(entry) {
   return hasResult(entry) && !String(entry.disqualifiedCode ?? '').trim() && /^1=?$/.test(String(entry.placing).trim());
 }
 
+export function podiumPlace(entry) {
+  if (!hasResult(entry) || String(entry.disqualifiedCode ?? '').trim()) return null;
+  const match = String(entry.placing ?? '').trim().match(/^([123])=?$/);
+  return match ? Number(match[1]) : null;
+}
+
 export function nextSort(params, key) {
   if (params.sort !== key) return { sort: key, dir: 'asc' };
   return params.dir === 'desc' ? { sort: '', dir: '' } : { sort: key, dir: 'desc' };
@@ -129,6 +135,12 @@ export function nextSort(params, key) {
 export function numericValue(value) {
   const match = String(value ?? '').trim().match(/^(\d+(?:[.,]\d+)?)(?:[a-zA-Z]|=)*$/);
   return match ? Number(match[1].replace(',', '.')) : null;
+}
+
+export function showRaceDistance(race, entries) {
+  const base = Number(race.distance);
+  return race.start_form === 'TASOITUSAJO' || !Number.isInteger(base) || base <= 0
+    || !entries.length || entries.some(entry => Number(entry.distance) !== base);
 }
 
 export function runnerPrediction(entry, prediction) {

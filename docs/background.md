@@ -10,13 +10,13 @@ be started again manually after reboot, sign-out or termination.
 Foreground (Ctrl+C stops it):
 
 ```powershell
-python -m hippos_analyst.background --continuous --delay 15 --daily-budget 2000 --db data/hippos.sqlite3
+python -m hippos_analyst.background --continuous --delay 10 --daily-budget 5000 --db data/hippos.sqlite3
 ```
 
 Windowless, from this workspace:
 
 ```powershell
-$workerProcess = Start-Process -FilePath 'C:\Python311\pythonw.exe' -WindowStyle Hidden -PassThru -WorkingDirectory 'E:\Projektit\hippos-analyst' -ArgumentList '-m hippos_analyst.background --continuous --delay 15 --daily-budget 2000 --db "E:\Projektit\hippos-analyst\data\hippos.sqlite3"'
+$workerProcess = Start-Process -FilePath 'C:\Python311\pythonw.exe' -WindowStyle Hidden -PassThru -WorkingDirectory 'E:\Projektit\hippos-analyst' -ArgumentList '-m hippos_analyst.background --continuous --delay 10 --daily-budget 5000 --db "E:\Projektit\hippos-analyst\data\hippos.sqlite3"'
 $workerProcess.Id
 ```
 
@@ -26,17 +26,20 @@ through batch boundaries, idle sleeps, cooldowns and daily-budget waits.
 
 ## Limits and behaviour
 
-- **15 seconds** minimum between request starts and **2,000 attempts per UTC day**,
-  raised from 1,000 on 10 November at the owner's request.
+- **10 seconds** minimum between request starts and **5,000 attempts per UTC day**,
+  raised from 2,000 on 10 November at the owner's request.
   Attempts already made today, including failures, count toward this cap.
 - Repeated batches permit up to 20 refresh, ten profile and ten history requests.
   There is no hourly delay between batches and no borrowing unused phase shares.
 - When the daily cap is reached, the process stays alive without network traffic
   until UTC midnight. It counts a new day from timestamps, never by resetting data.
 - Each pass computes the current Europe/Helsinki date. Race refresh covers three
-  days back through seven ahead, with a minimum observation age of 24 hours.
-- Five new known race-participant profiles per Helsinki day, two ancestor generations;
-  completed profiles are not automatically refreshed and ancestor stubs do not seed roots.
+  days back through seven ahead: today/tomorrow hourly, previous three days every
+  six hours, and days +2 through +7 every 24 hours. These are eligibility intervals,
+  not guaranteed completion times under the shared budget.
+- Up to 100 new known participant roots per Helsinki day in batches of ten, two ancestor generations;
+  completed profiles are not periodically refreshed and ancestor stubs do not seed roots.
+  One-time metadata upgrades and cached photos share the profile request allowance.
 - Historical collection proceeds one month at a time from the contiguous October
   2026 frontier. Twelve consecutive empty months persist a pause and stop the worker.
 - Access refusal, rate limiting, redirect, schema error, failed job or persistent
@@ -44,7 +47,7 @@ through batch boundaries, idle sleeps, cooldowns and daily-budget waits.
 - A transient error ends the batch; a new batch can start only after the stored
   Retry-After/cooldown and at least 60 seconds. Five consecutive transient failures
   persist a stop. Idle batches wait 60 seconds rather than busy-looping.
-- Only the existing four Hippos endpoint families and allowlists are used. No extra
+- Four Hippos JSON endpoint families plus profile-advertised horse photos are used. No extra
   Toto polling, person/owner enumeration or unbounded ancestry. See [scope](backfill.md).
 
 Without `--continuous`, the module still runs one bounded pass. Its defaults, and
@@ -76,9 +79,9 @@ failed jobs still require individually reviewed retries. No auto-restart exists.
 
 ## Verification
 
-135 Python tests passed. Coverage includes actual local wrapper passes with fake
-upstream responses, Helsinki date rollover, 15-second spacing across multiple
-passes, a second process blocked by the lock, 500- and 2,000-attempt exhaustion, UTC-midnight
+173 Python tests passed in the expanded collection verification. Coverage includes actual local wrapper passes with fake
+upstream responses, Helsinki date rollover, 10-second spacing across multiple
+passes, a second process blocked by the lock, 500-, 2,000- and 5,000-attempt exhaustion, UTC-midnight
 recovery without resetting the ledger, lock retention during waits, operator stop,
 Retry-After, 403/429/redirect/schema stops, failed jobs and unexpected local errors.
 The twelve-empty-month test verifies no request or new scheduling at that boundary.

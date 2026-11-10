@@ -7,6 +7,15 @@ from datetime import date, timedelta
 
 from . import api, collector, store
 
+PROFILE_ROOTS_PER_DAY = 100
+PROFILE_SEED_BATCH = 10
+
+
+def refresh_interval(offset):
+    if offset in (0,1):
+        return 3600
+    return 6*3600 if offset < 0 else 86400
+
 
 def seed_history(db):
     """Advance from October 2026, never from an isolated older sample."""
@@ -52,18 +61,24 @@ def prepare(db, today, now):
     for offset in range(-3, 8):
         day = (today+timedelta(days=offset)).isoformat()
         priority = 10+abs(offset)
-        refresh += store.enqueue_refresh(db,api.calendar_path(day),'calendar',{'date':day},priority,now)
+        interval = refresh_interval(offset)
+        refresh += store.enqueue_refresh(db,api.calendar_path(day),'calendar',{'date':day},priority,now,interval)
         children = db.execute("SELECT path,kind,context FROM jobs WHERE kind IN ('races','runners') "
                               "AND json_extract(context,'$.date')=?", (day,)).fetchall()
         for child in children:
-            refresh += store.enqueue_refresh(db,child['path'],child['kind'],json.loads(child['context']),priority,now)
+            refresh += store.enqueue_refresh(db,child['path'],child['kind'],json.loads(child['context']),priority,now,interval)
     profiles = 0
     seeded = db.execute("SELECT value FROM maintenance_state WHERE name='profile_seed_day'").fetchone()
-    pending = db.execute("SELECT 1 FROM jobs WHERE kind='profile' AND status='pending' LIMIT 1").fetchone()
-    if not pending and (not seeded or seeded[0] < today.isoformat()):
-        profiles = store.seed_profiles(db,limit=5,generations=2,priority=90)
+    count = db.execute("SELECT value FROM maintenance_state WHERE name='profile_seed_count'").fetchone()
+    # An old same-day marker represents the previous policy's five roots, not zero.
+    used = (int(count[0]) if count else 5) if seeded and seeded[0] == today.isoformat() else 0
+    pending = db.execute("SELECT 1 FROM jobs WHERE kind IN ('profile','horse_photo') AND status='pending' LIMIT 1").fetchone()
+    if not pending and used < PROFILE_ROOTS_PER_DAY:
+        profiles = store.seed_profiles(db,limit=min(PROFILE_SEED_BATCH,PROFILE_ROOTS_PER_DAY-used),generations=2,priority=90)
         db.execute("INSERT INTO maintenance_state VALUES('profile_seed_day',?) "
                    "ON CONFLICT(name) DO UPDATE SET value=excluded.value", (today.isoformat(),))
+        db.execute("INSERT INTO maintenance_state VALUES('profile_seed_count',?) "
+                   "ON CONFLICT(name) DO UPDATE SET value=excluded.value", (str(used+profiles),))
     return {'refresh':refresh,'profiles':profiles,'history':history}
 
 
@@ -72,8 +87,8 @@ def run(db, today, *, max_requests=40, delay=30, daily_budget=200,
     """Caller holds worker_lock throughout all phases. No background child worker."""
     if not 4 <= max_requests <= 40:
         raise ValueError('Maintenance permits 4–40 requests per wake-up')
-    if not 15 <= delay <= 3600 or not 1 <= daily_budget <= 2000:
-        raise ValueError('Maintenance requires 15–3600 second spacing and a 1–2000 daily budget')
+    if not 10 <= delay <= 3600 or not 1 <= daily_budget <= 5000:
+        raise ValueError('Maintenance requires 10–3600 second spacing and a 1–5000 daily budget')
     state = db.execute('SELECT * FROM control').fetchone()
     if state['paused_reason']:
         emit('Collection remains paused; no work scheduled.')

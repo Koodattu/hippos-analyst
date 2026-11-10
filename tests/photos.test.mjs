@@ -35,3 +35,13 @@ test('failed image loads reveal fallback and preserve the credit figure', () => 
   assert.equal(fallback.hidden,false);
   handlePhotoError({target:{tagName:'DIV'}});
 });
+
+test('Hippos photos use local bytes and do not invent a CC licence or author', () => {
+  const source={...photo,provider:'hippos',source_url:'https://heppa.hippos.fi/heppa2_backend/images/horse/photo/123',license_url:'',license:'',author:''};
+  const html=photoFigure(source,'Horse');
+  assert.ok(html.includes(`src="${source.url}"`));
+  assert.ok(html.includes('Kuvan lähde: Hippos'));
+  assert.ok(html.includes('ei ilmoita kuvaajaa'));
+  assert.ok(!html.includes('creativecommons.org'));
+  assert.ok(!photoFigure({...source,source_url:'https://evil.example/image'},'Horse').includes('<img'));
+});

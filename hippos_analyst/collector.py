@@ -66,12 +66,12 @@ def run(db, *, max_requests=25, delay=15, daily_budget=500,
     if queue not in ('all','refresh','profiles','history') or (provider=='toto' and queue!='all'):
         raise ValueError('Invalid collection queue')
     queue_filter = {'all':'1', 'refresh':"kind IN ('calendar','races','runners') AND json_extract(context,'$.refresh_after') IS NOT NULL",
-                    'profiles':"kind='profile'", 'history':"kind IN ('calendar','races','runners') AND json_extract(context,'$.refresh_after') IS NULL"}[queue]
+                    'profiles':"kind IN ('profile','horse_photo')", 'history':"kind IN ('calendar','races','runners') AND json_extract(context,'$.refresh_after') IS NULL"}[queue]
     if provider == 'toto' and (delay < toto.MIN_DELAY or daily_budget > 200 or max_requests > 20):
         raise ValueError('Toto requires at least 60-second spacing, at most 20 requests/run and 200 combined requests/day')
     fetch = fetch or (toto.fetch if provider == 'toto' else api.fetch)
-    if not 1 <= max_requests <= 500 or not 1 <= daily_budget <= 2000 or not 10 <= delay <= 3600:
-        raise ValueError("Use 1–500 requests/run, a 1–2000 daily budget and a 10–3600 second delay")
+    if not 1 <= max_requests <= 500 or not 1 <= daily_budget <= 5000 or not 10 <= delay <= 3600:
+        raise ValueError("Use 1–500 requests/run, a 1–5000 daily budget and a 10–3600 second delay")
     completed = 0
     for _ in range(max_requests):
         control = db.execute("SELECT * FROM control WHERE id=1").fetchone()
@@ -124,15 +124,22 @@ def run(db, *, max_requests=25, delay=15, daily_budget=500,
                 db.execute("UPDATE requests SET status=?,finished_at=? WHERE id=?", (response.status, clock(), request_id))
             if response.status == 200:
                 normalize = toto.normalize if provider == 'toto' else api.normalize
-                payload = response.json()
-                records = normalize(job["kind"], payload, json.loads(job["context"]))
+                if job['kind'] == 'horse_photo':
+                    from . import photos
+                    payload = None
+                    records = [photos.hippos_metadata(response,json.loads(job['context']))]
+                else:
+                    payload = response.json()
+                    records = normalize(job["kind"], payload, json.loads(job["context"]))
                 with db:
-                    if job['kind'] == 'runners':
+                    if provider == 'hippos' and payload is not None:
                         # Audit names, never unreviewed values (e.g. contact/free text).
-                        for name in {key for item in payload for key in item}:
+                        for name, retained in api.source_field_inventory(job['kind'],payload).items():
                             db.execute('''INSERT INTO source_fields VALUES(?,?,?,?,?)
                                 ON CONFLICT(kind,name) DO UPDATE SET retained=excluded.retained,last_seen=excluded.last_seen''',
-                                ('runners',name,int(name in api.RUNNER_FIELDS),clock(),clock()))
+                                (job['kind'],name,retained,clock(),clock()))
+                    if job['kind'] == 'horse_photo':
+                        photos.save_hippos(db,records[0],response.body,json.loads(job['context']))
                     store.save_response(db, job, records, request_id, clock())
                 completed += 1
                 emit(f"Saved {len(records)} {job['kind']} records")

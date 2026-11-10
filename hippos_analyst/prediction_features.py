@@ -10,14 +10,17 @@ from zoneinfo import ZoneInfo
 
 from . import api, race_results
 
-FEATURE_VERSION = 2
+FEATURE_VERSION = 3
 
 FEATURES = ['track', 'breed', 'start_form', 'distance', 'lane', 'handicap', 'field_size',
             'history_count', 'recent_count', 'days_since_start', 'win_rate', 'recent_win_rate',
             'recent_finish', 'gallop_rate', 'comparable_time', 'time_count',
             'driver_rate', 'driver_count', 'trainer_rate', 'trainer_count',
-            'form_vs_field', 'time_vs_field']
-CATEGORICAL = ['track', 'breed', 'start_form']
+            'form_vs_field', 'time_vs_field', 'discipline',
+            'discipline_history_count', 'discipline_win_rate', 'discipline_recent_finish',
+            'discipline_gallop_rate', 'discipline_driver_rate', 'discipline_driver_count',
+            'discipline_trainer_rate', 'discipline_trainer_count']
+CATEGORICAL = ['track', 'breed', 'start_form', 'discipline']
 SIGNATURE_FIELDS = ('horseId', 'programNumber', 'absent', 'distance', 'lane', 'driverId', 'trainerId')
 
 
@@ -47,9 +50,13 @@ def kilometre_seconds(value):
 
 
 def supported(race):
-    return (race.get('startType') == 'TOTO' and race.get('monte') is False
+    return (race.get('startType') == 'TOTO' and (race.get('monte') is False or race.get('monte') is True)
             and race.get('eventType') in ('LAMMINVERISET', 'KYLMAVERISET')
             and race.get('startForm') in ('RYHMALAHTO', 'TASOITUSAJO'))
+
+
+def discipline(race):
+    return 'monte' if race.get('monte') is True else 'sulky' if race.get('monte') is False else 'unknown'
 
 
 def result_reason(race, entries):
@@ -107,6 +114,7 @@ def read_groups(db):
 def build_features(groups):
     """Batch each date: even another race that same day cannot supply history."""
     horses, drivers, trainers = defaultdict(list), defaultdict(list), defaultdict(list)
+    discipline_drivers, discipline_trainers = defaultdict(list), defaultdict(list)
     dates = defaultdict(list)
     for g in groups:
         dates[g['key'][0]].append(g)
@@ -114,6 +122,7 @@ def build_features(groups):
     for day, daily in sorted(dates.items()):
         for g in daily:
             race = g['race']
+            kind = discipline(race)
             g['reason'] = result_reason(race, g['entries'])
             excluded[g['reason'] or 'eligible'] += 1
             g['starters'] = [e for e in g['entries'] if not e.get('absent')]
@@ -121,8 +130,10 @@ def build_features(groups):
             for e in g['starters']:
                 history = horses[str(e['horseId'])]
                 recent = history[-5:]
+                same = [h for h in history if h['discipline'] == kind]
+                same_recent = same[-5:]
                 distance = number(e.get('distance'))
-                comparable = [h['time'] for h in history[-10:] if h['time'] is not None
+                comparable = [h['time'] for h in same[-10:] if h['time'] is not None
                               and h['breed'] == race.get('eventType')
                               and h['start'] == race.get('startForm')
                               and abs(h['distance'] - distance) <= 200]
@@ -132,6 +143,8 @@ def build_features(groups):
                 form = (recent_wins + 1) / (len(recent) + 10)
                 dh = drivers[str(e['driverId'])] if e.get('driverId') else []
                 th = trainers[str(e['trainerId'])] if e.get('trainerId') else []
+                dd = discipline_drivers[(str(e['driverId']),kind)] if e.get('driverId') else []
+                dt = discipline_trainers[(str(e['trainerId']),kind)] if e.get('trainerId') else []
                 rows.append([g['key'][1], race.get('eventType', ''), race.get('startForm', ''),
                              distance, number(e.get('lane')), distance-number(race.get('baseDistance')),
                              len(g['starters']), len(history), len(recent),
@@ -140,14 +153,20 @@ def build_features(groups):
                              sum(h['finish'] for h in recent)/len(recent) if recent else -1,
                              sum(h['gallop'] for h in recent)/len(recent) if recent else -1,
                              km, len(comparable), (sum(dh[-100:])+2)/(len(dh[-100:])+20), len(dh),
-                             (sum(th[-100:])+2)/(len(th[-100:])+20), len(th)])
+                             (sum(th[-100:])+2)/(len(th[-100:])+20), len(th),
+                             # Field-relative values are filled after all runners are read.
+                             0, 0, kind, len(same), (sum(h['win'] for h in same)+1)/(len(same)+10),
+                             sum(h['finish'] for h in same_recent)/len(same_recent) if same_recent else -1,
+                             sum(h['gallop'] for h in same_recent)/len(same_recent) if same_recent else -1,
+                             (sum(dd[-100:])+2)/(len(dd[-100:])+20), len(dd),
+                             (sum(dt[-100:])+2)/(len(dt[-100:])+20), len(dt)])
                 forms.append(form)
                 times.append(km)
             mean_form = sum(forms)/len(forms) if forms else 0
             known_times = [t for t in times if t > 0]
             mean_time = sum(known_times)/len(known_times) if known_times else 0
             for row, form, km in zip(rows, forms, times):
-                row.extend([form-mean_form, km-mean_time if km > 0 else -1])
+                row[20:22] = [form-mean_form, km-mean_time if km > 0 else -1]
             g['x'] = rows
             g['y'] = [int(race_results.winner(e)) for e in g['starters']]
             g['form_scores'] = [math.log(f) for f in forms]
@@ -163,9 +182,12 @@ def build_features(groups):
                     'gallop': int(race_results.galloped(e)),
                     'time': kilometre_seconds(e.get('kilometerTime')) if result['kind']=='placed' else None,
                     'breed': g['race'].get('eventType'), 'start': g['race'].get('startForm'),
+                    'discipline': discipline(g['race']),
                     'distance': number(e.get('distance'))})
                 if e.get('driverId'):
                     drivers[str(e['driverId'])].append(win)
+                    discipline_drivers[(str(e['driverId']),discipline(g['race']))].append(win)
                 if e.get('trainerId'):
                     trainers[str(e['trainerId'])].append(win)
+                    discipline_trainers[(str(e['trainerId']),discipline(g['race']))].append(win)
     return groups, dict(excluded)

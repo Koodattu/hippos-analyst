@@ -102,21 +102,23 @@ class MaintenanceTests(unittest.TestCase):
         self.assertIn('Twelve empty', self.db.execute('SELECT paused_reason FROM control').fetchone()[0])
         self.assertEqual(self.db.execute('SELECT count(*) FROM jobs').fetchone()[0], count)
 
-    def test_profile_seeds_are_once_per_day_and_only_known_participants(self):
+    def test_profile_seeds_are_batched_and_only_known_participants(self):
         # Minimal normalized records create actual participant identities.
         with self.db:
             self.db.execute("INSERT INTO meetings VALUES(?,?,?,?,?,?,?,?)",(self.today,'H','test','12:00','H',0,'{}',0))
             self.db.execute("INSERT INTO races VALUES(?,?,?,?,?,?,?,?)",(self.today,'H','1','L','auto','2100','{}',0))
-            for n in range(1,9):
+            for n in range(1,26):
                 self.db.execute('INSERT INTO horses VALUES(?,?,?,?,?)',(str(n),'Horse','L','FI',0))
                 self.db.execute('INSERT INTO entries VALUES(?,?,?,?,?,?,?,?,?,?,?)',(self.today,'H','1',str(n),str(n),None,None,None,False,'{}',0))
             self.db.execute("INSERT INTO horses VALUES('999','Ancestor',NULL,NULL,0)")
             result=maintenance.prepare(self.db,self.today,self.clock())
-        self.assertEqual(result['profiles'],5)
+        self.assertEqual(result['profiles'],10)
+        self.assertEqual(maintenance.prepare(self.db,self.today,self.clock())['profiles'],0)
         self.assertFalse(self.db.execute("SELECT 1 FROM jobs WHERE path='/horse/999'").fetchone())
         self.db.execute("UPDATE jobs SET status='done' WHERE kind='profile'")
-        self.assertEqual(maintenance.prepare(self.db,self.today,self.clock())['profiles'],0)
-        self.assertEqual(maintenance.prepare(self.db,'2026-10-26',self.clock()+86400)['profiles'],3)
+        self.assertEqual(maintenance.prepare(self.db,self.today,self.clock())['profiles'],10)
+        self.db.execute("UPDATE jobs SET status='done' WHERE kind='profile'")
+        self.assertEqual(maintenance.prepare(self.db,'2026-10-26',self.clock()+86400)['profiles'],5)
 
     def test_each_queue_gets_a_share_and_transient_stops_whole_wakeup(self):
         with self.db:
@@ -138,6 +140,36 @@ class MaintenanceTests(unittest.TestCase):
         self.assertEqual(result,'retry')
         self.assertEqual(self.db.execute('SELECT count(*) FROM requests').fetchone()[0],count+1)
         self.assertEqual(self.db.execute('SELECT paused_until FROM control').fetchone()[0],self.clock()+180)
+
+    def test_recent_refresh_cadence_leaves_old_history_alone(self):
+        dates=['2026-10-20','2026-10-22','2026-10-25','2026-10-26','2026-10-27']
+        for day in dates:self.calendar(day,True)
+        self.db.execute("INSERT INTO maintenance_state VALUES('profile_seed_day',?)",(self.today,))
+        self.clock.now+=3601
+        maintenance.prepare(self.db,self.today,self.clock())
+        statuses={r[0]:r[1] for r in self.db.execute("SELECT json_extract(context,'$.date'),status FROM jobs WHERE kind='calendar'")}
+        self.assertEqual([statuses[d] for d in dates],['done','done','pending','pending','done'])
+        self.clock.now+=5*3600
+        maintenance.prepare(self.db,self.today,self.clock())
+        self.assertEqual(self.db.execute('SELECT status FROM jobs WHERE path=?',(api.calendar_path('2026-10-22'),)).fetchone()[0],'pending')
+        self.assertEqual(self.db.execute('SELECT status FROM jobs WHERE path=?',(api.calendar_path('2026-10-20'),)).fetchone()[0],'done')
+
+    def test_profile_daily_cap_survives_restarts_and_preserves_legacy_seed_count(self):
+        from unittest.mock import patch
+        self.db.execute("INSERT INTO maintenance_state VALUES('profile_seed_day',?)",(self.today,))
+        with patch('hippos_analyst.maintenance.store.seed_profiles',return_value=10) as seed:
+            maintenance.prepare(self.db,self.today,self.clock())
+            self.assertEqual(self.db.execute("SELECT value FROM maintenance_state WHERE name='profile_seed_count'").fetchone()[0],'15')
+            seed.assert_called_once_with(self.db,limit=10,generations=2,priority=90)
+        self.db.execute("UPDATE maintenance_state SET value='98' WHERE name='profile_seed_count'")
+        with patch('hippos_analyst.maintenance.store.seed_profiles',return_value=2) as seed:
+            maintenance.prepare(self.db,self.today,self.clock())
+            seed.assert_called_once_with(self.db,limit=2,generations=2,priority=90)
+        with patch('hippos_analyst.maintenance.store.seed_profiles') as seed:
+            maintenance.prepare(self.db,self.today,self.clock())
+            seed.assert_not_called()
+            maintenance.prepare(self.db,'2026-10-26',self.clock()+86400)
+            seed.assert_called_once_with(self.db,limit=10,generations=2,priority=90)
 
     def test_fresh_descendant_not_requeued_by_calendar_refresh(self):
         from test_collector import CALENDAR, DAY

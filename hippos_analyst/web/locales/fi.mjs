@@ -25,6 +25,8 @@ export const fi = {
   predictionDetails: 'Mallin tulokset', predictionTestNote: 'Laskettu jälkikäteen aiempien lähtöjen tiedoista. Ei ennen kilpailua tallennettu ennuste.',
   predictionTraining: day => `Opetusaineisto päättyy ${day}. Kertoimia ei käytetä ennusteen laskentaan.`,
   predictionScore: (n, model, form, market) => `${n} testilähtöä · ykkösvalinta voitti: malli ${model}, viime lähdöt ${form}, lopullisten kertoimien suosikki ${market}.`,
+  predictionDisciplines: {monte:'Monté',sulky:'Kärrylähdöt'},
+  predictionNoDisciplineTest: 'Ei vielä testilähtöjä tässä kilpailumuodossa.',
   noPhoto: 'Ei kuvaa', photoUnavailable: 'Kuva ei ole saatavilla',
   photoOf: name => `Kuvassa ${name}`, photoCredit: author => `Kuva: ${author}`,
   photoDetails: 'Kuvan lähde ja tiedot',
@@ -142,7 +144,7 @@ export const fi = {
   source: 'Lähde: Suomen Hippos', openSource: 'Avaa Heppa',
 
 
-  meetings: 'ravipäivää', races: 'lähtöä', horseCount: 'hevosta', archive: 'Koko aineisto',
+  meetings: 'ravipäivää', races: 'lähtöä', horseCount: 'hevosta', archive: 'Koko aineisto', archiveShort: 'Kaikki',
   meetingHeading: 'Ravipäivät', raceHeading: 'Lähdöt', meetingPages: 'Ravipäivien sivut',
 
   selectMeeting: 'Valitse ravipäivä', selectedMeeting: 'Valittu ravipäivä',
@@ -154,7 +156,7 @@ export const fi = {
   priorForm: 'Aiemmat lähdöt', noPriorForm: 'Ei aiempia tietoja',
   formHint: 'Enintään viisi aiempaa kerättyä lähtöä ennen tätä ravipäivää, uusin ensin.',
   fullRace: 'Avaa erillinen lähtönäkymä', calendarSummary: (m, r, h) => `${m} ravipäivää · ${r} lähtöä · ${h} hevosta`,
-  near: 'Lähiaika', from: 'Alkaen', to: 'Päättyen', track: 'Rata', allTracks: 'Kaikki radat',
+  near: 'Lähiaika', lastWeekShort: 'Viimeiset 7 pv', from: 'Alkaen', to: 'Päättyen', track: 'Rata', allTracks: 'Kaikki radat',
   apply: 'Näytä', collected: 'Kerätty aineisto', loading: 'Ladataan aineistoa…',
   error: 'Aineistoa ei voitu ladata', errorHint: 'Tarkista, että paikallinen palvelin on käynnissä, ja yritä uudelleen.',
   notFound: 'Tietoa ei löydy tästä aineistosta', notFoundHint: 'Tietoa ei ole kerätty tai se on poistunut viimeisimmästä lähdelistasta.',
@@ -195,6 +197,8 @@ export const fi = {
   localHint: 'Selaaminen lukee vain paikallista tietokantaa.',
   breeds: { L: 'Lämminverinen', K: 'Kylmäverinen', S: 'Suomenhevonen', LAMMINVERISET: 'Lämminveriset', KYLMAVERISET: 'Kylmäveriset', SUOMENHEVOSET: 'Suomenhevoset', YHDISTETTY: 'Yhdistetty lähtö', A_PONIT: 'A-ponit', B_PONIT: 'B-ponit' },
   forms: { TASOITUSAJO: 'Tasoitusajo', RYHMALAHTO: 'Ryhmäajo' },
-  types: { KOE: 'Koelähtö', KOELAHTO: 'Koelähtö', OPETUSLAHTO: 'Opetuslähtö', TOTO: 'Kilpailulähtö', PONI: 'Ponilähtö' },
+  types: { PAIKALLIS: 'Paikallisravit', KOE: 'Koelähtö', KOELAHTO: 'Koelähtö', OPETUSLAHTO: 'Opetuslähtö', TOTO: 'Kilpailulähtö', PONI: 'Ponilähtö' },
   monte: 'Monté', invalidRange: 'Päättymispäivän tulee olla aikaisintaan alkamispäivä.',
+  photoHippos: 'Kuvan lähde: Hippos',
+  photoHipposRights: 'Lähde ei ilmoita kuvaajaa tai kuvan käyttöoikeutta.',
 };

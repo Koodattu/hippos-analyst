@@ -74,14 +74,25 @@ class BackgroundTests(unittest.TestCase):
         self.assertEqual(self.db.execute('SELECT count(*) FROM requests').fetchone()[0], 2001)
 
     def test_budget_ceiling_and_toto_limits_remain_bounded(self):
-        for call in [lambda: background.run(self.path, daily_budget=2001),
-                     lambda: maintenance.run(self.db, '2026-11-03', daily_budget=2001),
-                     lambda: collector.run(self.db, daily_budget=2001),
+        for call in [lambda: background.run(self.path, daily_budget=5001),
+                     lambda: maintenance.run(self.db, '2026-11-03', daily_budget=5001),
+                     lambda: collector.run(self.db, daily_budget=5001),
                      lambda: collector.run(self.db, provider='toto', delay=60,
                                            max_requests=1, daily_budget=2000)]:
             with self.assertRaises(ValueError):
                 call()
         self.assertEqual(self.db.execute('SELECT count(*) FROM requests').fetchone()[0], 0)
+
+    def test_five_thousand_cap_preserves_all_prior_attempts(self):
+        with self.db:
+            self.db.executemany("INSERT INTO requests(path,started_at) VALUES('test',?)",
+                                [(self.clock(),)]*4999)
+        calls=[]
+        opts=dict(delay=10,daily_budget=5000,clock=self.clock,sleep=self.clock.sleep,emit=lambda _:None)
+        self.assertEqual(background.run(self.path,fetch=lambda path:(calls.append(path) or response([])),**opts),'budget')
+        self.assertEqual(len(calls),1)
+        self.assertEqual(background.run(self.path,fetch=lambda _:self.fail('Cap bypassed'),**opts),'budget')
+        self.assertEqual(self.db.execute('SELECT count(*) FROM requests').fetchone()[0],5000)
 
     def test_refusal_and_schema_stop_future_invocations(self):
         for status, payload in [(403, None), (429, None), (302, None), (200, {})]:
@@ -120,16 +131,16 @@ class BackgroundTests(unittest.TestCase):
         self.assertEqual(state['paused_until'], 123)
         self.assertEqual(self.run_worker(lambda _: self.fail('Error stop bypassed')), 'paused')
 
-    def test_continuous_crosses_pass_boundaries_with_fifteen_second_spacing(self):
+    def test_continuous_crosses_pass_boundaries_with_ten_second_spacing(self):
         calls = []
         def fetch(path):
             calls.append(self.clock())
             return api.Response(403) if len(calls) == 45 else response([])
-        result = background.run(self.path, continuous=True, delay=15, daily_budget=500,
+        result = background.run(self.path, continuous=True, delay=10, daily_budget=500,
                                 clock=self.clock, sleep=self.clock.sleep, fetch=fetch, emit=lambda _: None)
         self.assertEqual(result, 'paused')
         self.assertEqual(len(calls), 45)
-        self.assertTrue(all(15 <= b-a < 16 for a,b in zip(calls,calls[1:])))
+        self.assertTrue(all(10 <= b-a < 11 for a,b in zip(calls,calls[1:])))
 
     def test_continuous_budget_wait_keeps_lock_and_obeys_manual_pause(self):
         with self.db:
@@ -157,7 +168,7 @@ class BackgroundTests(unittest.TestCase):
         def fetch(path):
             calls.append(self.clock())
             return api.Response(503, headers={'retry-after': '7200'}) if len(calls)==1 else api.Response(429)
-        result = background.run(self.path, continuous=True, delay=15, daily_budget=500,
+        result = background.run(self.path, continuous=True, delay=10, daily_budget=500,
                                 clock=self.clock, sleep=self.clock.sleep, fetch=fetch, emit=lambda _: None)
         self.assertEqual(result, 'paused')
         self.assertEqual(len(calls), 2)
@@ -178,7 +189,7 @@ class BackgroundTests(unittest.TestCase):
         def fetch(path):
             calls.append(self.clock())
             return api.Response(403)
-        result = background.run(self.path, continuous=True, delay=15, daily_budget=500,
+        result = background.run(self.path, continuous=True, delay=10, daily_budget=500,
                                 clock=self.clock, sleep=self.clock.sleep, fetch=fetch, emit=lambda _: None)
         self.assertEqual(result, 'paused')
         self.assertEqual(calls, [datetime.fromisoformat('2026-11-03T00:00:00+00:00').timestamp()])

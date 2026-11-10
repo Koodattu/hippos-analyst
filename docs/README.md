@@ -12,6 +12,7 @@ in this directory alongside implementation changes.
 - [Implemented CatBoost predictions](predictions.md): measured results, racecards, training and local forecast worker.
 - [Track profiles](tracks.md): venue identities, curated facts, licensed images and linked meeting history.
 - [Collection and operations](collection.md): commands, limits, pause behaviour and refreshes.
+- [Faster collection and endpoint audit](collection-expansion.md): current limits, recent scratches, metadata backfill and cached Hippos horse photos.
 - [Result parsing and repair](result-parsing.md): disqualification codes, field inventory, versioned refetch and model handling.
 - [Active backfill policy and progress](backfill.md): slow scheduled continuation, coverage frontier and stop rules.
 - [Archive growth verification](archive-growth.md): paged calendars and the 100,000-horse fixture.

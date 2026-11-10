@@ -208,6 +208,12 @@ start a new collection run; 19 jobs remain queued.
 
 ## Scheduled maintenance (25 October 2026)
 
+**Current policy (10 November):** see [collection expansion](collection-expansion.md).
+The continuous worker now uses ten-second spacing and 5,000 attempts/day, seeds up
+to 100 profile roots/day, audits all four JSON endpoint families and caches advertised
+horse photos. Recent refresh ages are one/six/24 hours according to date. Earlier
+policy figures below describe the original maintenance rollout, not current limits.
+
 `python -u -m hippos_analyst maintain --date 2026-10-25 --max-requests 40`
 
 Pass the current **Europe/Helsinki** date; the example date is not a permanent

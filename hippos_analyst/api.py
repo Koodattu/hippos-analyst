@@ -8,6 +8,7 @@ from datetime import date
 from http.client import HTTPException
 from urllib.error import HTTPError, URLError
 from urllib.request import HTTPRedirectHandler, Request, build_opener
+from urllib.parse import urlsplit
 
 BASE_URL = "https://heppa.hippos.fi/heppa2_backend"
 MAX_RESPONSE_BYTES = 8 * 1024 * 1024
@@ -54,6 +55,16 @@ def profile_path(value):
     return f'/horse/{horse_id(value)}'
 
 
+def horse_photo_path(value, url):
+    path = f'/images/horse/photo/{horse_id(value)}'
+    parsed = urlsplit(url)
+    if (parsed.scheme != 'https' or parsed.hostname != 'heppa.hippos.fi'
+            or parsed.port not in (None,443) or parsed.username or parsed.password
+            or parsed.path != '/heppa2_backend'+path or parsed.query or parsed.fragment):
+        raise SchemaError('Unexpected horse photo URL or identity')
+    return path
+
+
 @dataclass
 class Response:
     status: int
@@ -78,10 +89,10 @@ class NoRedirects(HTTPRedirectHandler):
 def fetch(path):
     # Paths are derived from validated calendar records, never arbitrary URLs.
     if not re.fullmatch(r"/race/(?:search/\d{4}-\d{2}-\d{2}/\d{4}-\d{2}-\d{2}/|"
-                        r"\d{4}-\d{2}-\d{2}/[A-Za-z0-9_-]+/(?:races|start/[A-Za-z0-9_-]+))|/horse/[0-9]{1,30}", path):
+                        r"\d{4}-\d{2}-\d{2}/[A-Za-z0-9_-]+/(?:races|start/[A-Za-z0-9_-]+))|/horse/[0-9]{1,30}|/images/horse/photo/[0-9]{1,30}", path):
         raise ValueError("Unsupported Hippos API path")
     request = Request(BASE_URL + path, headers={
-        "Accept": "application/json",
+        "Accept": "image/jpeg" if path.startswith('/images/') else "application/json",
         "User-Agent": "hippos-analyst/0.1 (private educational research; single worker)",
     })
     try:
@@ -99,12 +110,46 @@ def fetch(path):
 
 
 MEETING_FIELDS = "date trackCode startTime name eventType trackShortname trackType trackNumber meetNumber trackCondition temperature trackCity trackName canceled hasPublishedResults isFreeToPublish majorRace finnishTrack latitude longitude formattedTrackName".split()
+MEETING_FIELDS += 'divisionFinal finnHorseChampionshipRace hoofLeagueRace ponyChampionshipRace specialRaceEventName'.split()
 RACE_FIELDS = "date trackCode startNumber categoryNumber plannedTime actualTime startType startForm monte totoResultsReady publishFree eventType baseDistance finnishTrack trackNumber firstPrice priceSum status specialRace".split()
+RACE_FIELDS += 'raceName levellingHeader tototvLink'.split()
 RUNNER_PARSER_VERSION = 4
+PROFILE_PARSER_VERSION = 3
+PROFILE_TEXT_FIELDS = ('name', 'ownerName', 'breederName', 'birthDate', 'breedCode',
+                       'breedFinName', 'gender', 'registrationCountry')
+PROFILE_EXTRA_FIELDS = 'age bestRecord birthCountry birthCountryName color homeTrackCity homeTrackName origin registerNo registrationSuspended species trainerId trainerName tryOutPointsWithPause tryOutPointsWithoutPause ueln'.split()
+BLUP_FIELDS = 'bestTimeOfYear blup estimateCertainty startAge timeDifference winningSum year'.split()
+PHOTO_FIELDS = ('photoExist','photoUrl','lastModified')
+PARSER_VERSIONS = {'calendar':2,'races':2,'runners':RUNNER_PARSER_VERSION,'profile':PROFILE_PARSER_VERSION}
 RUNNER_FIELDS = "date trackCode startNumber startForm monte programNumber lane distance placing disqualifiedCode totalTime kilometerTime shortKilometerTime price winOdds winOddsStr horseId horseName horseBreed horseRegistrationCountry trainerId trainerName driverId driverName driverFirstName driverLastName gallop absent shoesFront shoesBack americanSulkyKEX startType testStartAccepted finnishTrack trackNumber horsePriceSum record recordType recordMonte status startAmount condition expectedValue trainerCommentsUpdated distanceCode shortCarRecord shortRecord carRecord carRecordType carRecordMonte".split()
 RUNNER_FIELDS += 'driverShortFirstName originalDriverId originalDriverFirstName originalDriverLastName originalDriverShortFirstName ownerName winOdds2'.split()
 RUNNER_FIELDS += 'finishing placementExpectations hasEquipmentChanges equipmentChangesText'.split()
 BOOLEAN_FIELDS = frozenset('absent canceled hasPublishedResults monte finnishTrack totoResultsReady publishFree isFreeToPublish gallop hasEquipmentChanges carRecordMonte'.split())
+
+
+def source_field_inventory(kind, payload):
+    """Inventory names only, including nested properties; never archive excluded values."""
+    kept = {
+        'calendar': {'raceDate', 'events', *('events.'+k for k in MEETING_FIELDS)},
+        'races': {'race', *('race.'+k for k in RACE_FIELDS), 'race.totoTypes','gameTypes','intermediateTime'},
+        'runners': set(RUNNER_FIELDS),
+        'profile': {'id', *PROFILE_TEXT_FIELDS, 'birthDateAccurate', 'dead',
+                    *PROFILE_EXTRA_FIELDS, 'blup', *('blup.'+k for k in BLUP_FIELDS),
+                    'sire', 'sire.id', 'sire.name', 'dam', 'dam.id', 'dam.name',
+                    'photo', *('photo.'+k for k in PHOTO_FIELDS)},
+    }[kind]
+    found = {}
+    def visit(value, prefix=''):
+        if isinstance(value, list):
+            for item in value:
+                visit(item, prefix)
+        elif isinstance(value, dict):
+            for key, child in value.items():
+                name = prefix+key
+                found[name] = int(name in kept)
+                visit(child, name+'.')
+    visit(payload)
+    return found
 
 
 def selected(record, fields):
@@ -163,6 +208,14 @@ def normalize(kind, payload, context):
                 output.append(record)
         elif kind == "races":
             record = selected(item.get("race"), RACE_FIELDS)
+            for source,key in ((item['race'],'totoTypes'),(item,'gameTypes')):
+                value = source.get(key)
+                if value is not None and (not isinstance(value,list) or not all(isinstance(v,str) for v in value)):
+                    raise SchemaError(f'Expected a list of game names for {key}')
+                if key in source:
+                    record[key] = value
+            if 'intermediateTime' in item:
+                record.update(selected(item,['intermediateTime']))
             identity(record, day, context["track"])
             if record.get("startNumber") is None:
                 raise SchemaError("Missing race number")
@@ -209,12 +262,16 @@ def normalize_profile(payload, expected_id):
         raise SchemaError('Profile identity does not match request')
     result = {'id': horse_id(payload['id'])}
     # Names only: no contact, chip, laboratory, vaccination or free-text fields.
-    for key in ('name', 'ownerName', 'breederName', 'birthDate', 'breedCode',
-                'breedFinName', 'gender', 'registrationCountry'):
+    for key in PROFILE_TEXT_FIELDS:
         value = payload.get(key)
         if value is not None and not isinstance(value, str):
             raise SchemaError(f'Expected text for {key}')
         result[key] = value.strip() if value and value.strip() not in ('-', '—') else None
+    result.update(selected(payload,PROFILE_EXTRA_FIELDS))
+    if result.get('trainerId') is not None:
+        result['trainerId'] = str(result['trainerId'])
+    if payload.get('blup') is not None:
+        result['blup'] = selected(payload['blup'],BLUP_FIELDS)
     if not result['name']:
         raise SchemaError('Missing horse name')
     if result['birthDate']:
@@ -239,4 +296,16 @@ def normalize_profile(payload, expected_id):
         if parent_id == result['id']:
             raise SchemaError('Horse cannot be its own parent')
         result[relation] = {'id': parent_id, 'name': name.strip() if name and name.strip() not in ('-', '—') else None}
+    photo = payload.get('photo')
+    if photo is not None:
+        if not isinstance(photo, dict):
+            raise SchemaError('Expected photo metadata object')
+        if 'photoExist' in photo and not isinstance(photo['photoExist'], bool):
+            raise SchemaError('Expected boolean photoExist')
+        if photo.get('photoUrl') is not None and not isinstance(photo['photoUrl'], str):
+            raise SchemaError('Expected text photoUrl')
+        # Source metadata only. Do not load arbitrary URLs while browsing profiles.
+        result['photo'] = selected(photo,PHOTO_FIELDS)
+        if photo.get('photoExist') and photo.get('photoUrl'):
+            horse_photo_path(result['id'],photo['photoUrl'])
     return result

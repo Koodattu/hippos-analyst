@@ -1562,3 +1562,34 @@ models/browser checks verified Jokimaa race 2's `hlo6`, zero-placing `hpl`, hist
 membership and historical prediction. Sixty eligible forecasts were available;
 watcher stderr was empty. Tests passed: 159 Python and 36 JavaScript. Full result
 recovery remains pending; `python -m hippos_analyst repair-results` reports progress.
+
+## 10 November 2026 — faster collection, endpoint audit and horse photos
+
+At **15:37 UTC / 17:37 Helsinki**, the upgraded continuous worker (PID 43248)
+was healthy at ten-second spacing and a 5,000-attempt combined UTC daily cap.
+421 attempts were recorded today. No failed jobs or active stop/cooldown remained;
+SQLite quick_check was `ok` and foreign_key_check returned no violations.
+The one locally introduced `totoTypes` parser failure was diagnosed, regression-
+tested and explicitly retried successfully; its failed request remains recorded.
+No provider objection or budget ledger was cleared.
+
+Counts: 279 meetings, 3,216 races, 31,543 entries, 5,662 horse identities and 352
+profiles. Ten photo assignments include the first verified cached Hippos image;
+the rest predate this change. The runner repair had 121 current fields and 3,091
+remaining. An additional 820 calendar/list/profile jobs were queued once to
+upgrade metadata and discover photos. June–October calendars and their discovered
+fields have prior observations; November is observed only through the 17th, and
+May remains partial. The historical frontier did not advance in this checkpoint.
+
+New participant seeding permits 100 roots/Helsinki day in batches of ten with two
+ancestor generations. The persisted count was 15 (five from the earlier policy
+plus ten newly seeded); pending profile upgrades/photos must finish before more
+roots seed. Recent refresh eligibility is hourly for today/tomorrow, six hours
+for the previous three days and daily for days +2 through +7. No recurring older
+race/profile checks were added. The forecast watcher keeps running; local UI and
+cached-image HTTP checks passed. See [expanded policy and audit](collection-expansion.md).
+
+Verification passed 173 Python and 37 JavaScript tests, including withdrawals,
+removed entrants, shared caps/spacing, durable profile seeding and cached-photo
+identity/security. Browser inspection confirmed the real image and source label
+without console errors. New fields do not automatically enter prediction features.

@@ -136,6 +136,15 @@ class CollectorTests(unittest.TestCase):
         self.assertEqual(self.db.execute("SELECT count(*) FROM entries").fetchone()[0], 0)
         self.assertEqual(self.db.execute("SELECT count(*) FROM snapshots").fetchone()[0], 4)
 
+    def test_scratch_refresh_replaces_current_entry_and_preserves_previous_evidence(self):
+        self.run_worker()
+        changed=copy.deepcopy(RUNNERS);changed[0]['absent']=True
+        self.payloads[api.runners_path(DAY,'H','1')]=changed
+        self.seed(refresh=True);self.run_worker()
+        self.assertEqual(self.db.execute('SELECT absent FROM entries').fetchone()[0],1)
+        bodies=[json.loads(r[0]) for r in self.db.execute('SELECT body FROM snapshots WHERE path=? ORDER BY id',(api.runners_path(DAY,'H','1'),))]
+        self.assertEqual([b[0]['absent'] for b in bodies],[False,True])
+
     def test_daily_budget_survives_restart_and_resets_next_utc_day(self):
         self.assertEqual(self.run_worker(daily_budget=1), "budget")
         self.db.close()

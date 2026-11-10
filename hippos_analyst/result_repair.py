@@ -30,4 +30,4 @@ def plan(db, enqueue=False, now=None):
     return {'parser_version':api.RUNNER_PARSER_VERSION,'observed_fields':len(candidates),
             'current_fields':len(candidates)-len(outdated),'remaining_fields':len(outdated),
             'remaining_by_status':dict(Counter(row['status'] for row in outdated)), 'newly_queued':queued,
-            'unretained_source_fields':[r[0] for r in db.execute('SELECT name FROM source_fields WHERE retained=0 ORDER BY name')]}
+            'unretained_source_fields':[r[0] for r in db.execute("SELECT name FROM source_fields WHERE kind='runners' AND retained=0 ORDER BY name")]}

@@ -15,7 +15,7 @@ def profile(value='100', name='Testihevonen'):
             'sire': {'id': '200', 'name': 'Testi-isä', 'laboratoryNumber': 'DROP'},
             'dam': {'id': '', 'name': 'Nimetty emä'},
             'chipNo': 'DROP', 'latestVaccination': 'DROP', 'description': 'DROP',
-            'photo': {'photoUrl': 'DROP'}, 'ownerAddress': 'DROP'}
+            'photo': {'photoUrl': None, 'photoExist': False}, 'ownerAddress': 'DROP'}
 
 
 class ProfileTests(unittest.TestCase):
@@ -47,6 +47,7 @@ class ProfileTests(unittest.TestCase):
         parsed = api.normalize('profile', raw, {'id': raw['id']})[0]
         self.assertEqual(parsed['id'], raw['id'])
         self.assertNotIn('DROP', json.dumps(parsed))
+        self.assertEqual(parsed['photo'],raw['photo'])
         self.assertEqual(parsed['sire'], {'id': '200', 'name': 'Testi-isä'})
         self.assertEqual(parsed['dam'], {'id': None, 'name': 'Nimetty emä'})
         raw.update(ownerName='-', breederName=None, sire=None)

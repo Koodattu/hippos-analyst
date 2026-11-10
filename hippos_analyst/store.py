@@ -163,8 +163,8 @@ def enqueue_refresh(db, path, kind, context, priority, now, interval=86400):
 def save_response(db, job, records, request_id, now):
     """Called inside a transaction: archive, materialize and discover together."""
     body = encode(records)
-    from .api import RUNNER_PARSER_VERSION
-    version = RUNNER_PARSER_VERSION if job['kind'] == 'runners' else 1
+    from .api import PARSER_VERSIONS
+    version = PARSER_VERSIONS.get(job['kind'],1)
     # Separate parser generations even for empty fields; never relabel old evidence.
     digest = hashlib.sha256((body if version == 1 else str(version)+':'+body).encode("utf-8")).hexdigest()
     db.execute("INSERT OR IGNORE INTO snapshots(path,sha256,first_seen,body,parser_version) VALUES(?,?,?,?,?)",
@@ -237,6 +237,12 @@ def save_response(db, job, records, request_id, now):
                 db.execute('INSERT OR IGNORE INTO horses VALUES(?,?,NULL,NULL,?)', (parent['id'], parent['name'] or parent['id'], now))
             db.execute('INSERT INTO horse_parents VALUES(?,?,?,?)', (record['id'], role, parent['id'], parent['name']))
         discover_parents(db, record['id'], context.get('remaining', 0), job['priority'])
+        photo = record.get('photo') or {}
+        if photo.get('photoExist') and photo.get('photoUrl') and not db.execute(
+                "SELECT 1 FROM profile_photos WHERE kind='horse' AND entity_id=?",(record['id'],)).fetchone():
+            from .api import horse_photo_path
+            enqueue(db,horse_photo_path(record['id'],photo['photoUrl']),'horse_photo',
+                    {'id':record['id'],'name':record['name'],'lastModified':photo.get('lastModified')},job['priority'])
     db.execute("UPDATE requests SET outcome='ok',snapshot_id=?,finished_at=? WHERE id=?",
                (snapshot_id, now, request_id))
     db.execute("UPDATE jobs SET status='done',last_success=?,last_error=NULL,next_attempt=0 WHERE path=?",

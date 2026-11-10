@@ -1,8 +1,36 @@
 import { loadSaved, toggleSaved } from '../hippos_analyst/web/saved.mjs';
 import { personReference, personReturnRoute, returnContext, sameView } from '../hippos_analyst/web/model.mjs';
+import { showRaceDistance, podiumPlace } from '../hippos_analyst/web/model.mjs';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { coverageState, hasResult, isWinner, historyStats, resultText, kilometerTime, splitStarts, orderEntries, localDay, addDays, route, parseRoute, dateRange, escapeHtml, calendarSelection, calendarParams, calendarPage, raceOrder, withRaceOrder, horseReturnRoute } from '../hippos_analyst/web/model.mjs';
+
+test('podium badges identify actual top-three finishes, including ties, but never scratches or result codes', () => {
+  for (const place of [1,2,3]) {
+    assert.equal(podiumPlace({placing:place}),place);
+    assert.equal(podiumPlace({placing:`${place}=`}),place);
+    assert.equal(podiumPlace({placing:place,absent:true}),null);
+    assert.equal(podiumPlace({placing:place,disqualifiedCode:'hyl'}),null);
+  }
+  for (const placing of [undefined,null,'',0,4,12,101,106,'hpl','2a','3?']) {
+    assert.equal(podiumPlace({placing}),null);
+  }
+});
+
+test('race distance stays visible for handicaps, differing fields and incomplete distance data', () => {
+  const group = {start_form:'RYHMALAHTO',distance:'2140'};
+  const uniform = [{distance:'2140'},{distance:2140}];
+  assert.equal(showRaceDistance(group,uniform),false);
+  assert.equal(showRaceDistance({...group,start_form:'TASOITUSAJO'},uniform),true);
+  assert.equal(showRaceDistance(group,[...uniform,{distance:'2180'}]),true);
+  assert.equal(showRaceDistance(group,[...uniform,{distance:'2120',absent:true}]),true);
+  assert.equal(showRaceDistance(group,[{distance:'2160'},{distance:'2160'}]),true);
+  for (const distance of [undefined,null,'',0,'unknown']) {
+    assert.equal(showRaceDistance(group,[{distance}]),true);
+    assert.equal(showRaceDistance({...group,distance},uniform),true);
+  }
+  assert.equal(showRaceDistance(group,[]),true);
+});
 
 test('source disqualifications and retirement display without inventing placings', () => {
   assert.equal(resultText({placing:'106',disqualifiedCode:'hlo'},'placing'),'hlo6');

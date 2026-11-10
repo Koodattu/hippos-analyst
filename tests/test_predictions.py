@@ -41,10 +41,57 @@ class FeatureTests(unittest.TestCase):
     def test_unknown_results_ties_and_other_disciplines_excluded(self):
         for mutation, reason in [(lambda g:g['entries'][0].update(placing='101'),'unknown_placing'),
                                   (lambda g:g['entries'][1].update(placing='1'),'winner_not_unique'),
-                                  (lambda g:g['race'].update(monte=True),'unsupported_type'),
+                                  (lambda g:g['race'].update(monte=None),'unsupported_type'),
+                                  (lambda g:g['race'].update(eventType='PONIT'),'unsupported_type'),
                                   (lambda g:g['race'].update(status='0'),'unsettled_status')]:
             g=group();mutation(g)
             self.assertEqual(f.result_reason(g['race'],g['entries']),reason)
+
+    def test_monte_form_and_rider_history_are_discipline_specific(self):
+        sulky, monte, target = group(), group('2026-08-02'), group('2026-08-03')
+        for g in (monte,target):
+            g['race']['monte']=True
+        # The same horse wins in sulky but loses in monte, with different times.
+        monte['entries'][0].update(placing='2',kilometerTime='1.25.0',gallop=True)
+        monte['entries'][1]['placing']='1'
+        built,_=f.build_features([sulky,monte,target])
+        self.assertIsNone(built[1]['reason'])
+        first=dict(zip(f.FEATURES,built[1]['x'][0]))
+        self.assertEqual(first['history_count'],1)
+        self.assertEqual(first['discipline_history_count'],0)
+        self.assertEqual(first['comparable_time'],-1)
+        row=dict(zip(f.FEATURES,built[2]['x'][0]))
+        self.assertEqual(len(built[2]['x'][0]),len(f.FEATURES))
+        self.assertEqual(row['discipline'],'monte')
+        self.assertEqual(row['history_count'],2)
+        self.assertEqual(row['discipline_history_count'],1)
+        self.assertAlmostEqual(row['discipline_win_rate'],1/11)
+        self.assertEqual(row['discipline_recent_finish'],1)
+        self.assertEqual(row['discipline_gallop_rate'],1)
+        self.assertEqual(row['comparable_time'],85)
+        self.assertEqual(row['discipline_driver_count'],1)
+        self.assertAlmostEqual(row['discipline_driver_rate'],2/21)
+        self.assertEqual(row['discipline_trainer_count'],1)
+        self.assertAlmostEqual(row['discipline_trainer_rate'],2/21)
+        # Neither same-day monte nor future outcomes can supply rider/form history.
+        same_day=copy.deepcopy(monte);same_day['key']=target['key'][:2]+('2',)
+        same_day['race']['date']=target['race']['date']
+        future=group('2026-08-04');future['race']['monte']=True
+        self.assertEqual(built[2]['x'],f.build_features([sulky,monte,same_day,target,future])[0][3]['x'])
+
+    def test_monte_forecast_is_supported_but_trials_and_missing_discipline_are_not(self):
+        g=group('2026-11-11');g['race'].update(monte=True,status='0')
+        for e in g['entries']:e['placing']='0'
+        g=f.build_features([g])[0][0]
+        now=f.scheduled_at(g['race'])-1800
+        report={'splits':{'calibration':{'end':'2026-10-01'}}}
+        self.assertTrue(p.forecast_eligible(g,report,now))
+        g['race']['startType']='KOELAHTO'
+        self.assertFalse(p.forecast_eligible(g,report,now))
+
+    def test_discipline_metrics_allow_no_evaluation_sample(self):
+        self.assertEqual(p.comparison([],[])['catboost'],{'races':0})
+        self.assertIsNone(p.comparison([],[])['log_loss_delta_vs_form_95pct'])
 
     def test_time_parser_and_missing_history(self):
         self.assertEqual(f.kilometre_seconds('1.17.8'),77.8)
@@ -93,6 +140,29 @@ class FeatureTests(unittest.TestCase):
 
 
 class PersistenceTests(unittest.TestCase):
+    def test_monte_racecard_reports_monte_evaluation_without_rewriting_prediction(self):
+        with tempfile.TemporaryDirectory() as temp:
+            path=Path(temp)/'archive.sqlite3'
+            archive=store.connect(path);output=ps.connect(path)
+            try:
+                g=group('2026-11-11');g['race']['monte']=True
+                g['signature']=f.signature(g['race'],g['entries'])
+                g=f.build_features([g])[0][0]
+                report={'splits':{'train':{'end':'2026-08-01'},'calibration':{'end':'2026-10-01'}},
+                        'test':{'catboost':{'races':239}},
+                        'by_discipline':{'monte':{'catboost':{'races':7}}}}
+                with output:
+                    output.execute('INSERT INTO models VALUES(?,?,?,?)',('v3',1,'unused',json.dumps(report)))
+                    ps.save(output,'v3',g,[.6,.4],'backtest',1,g['field_at'],report)
+                data=ps.read_race(archive,g['race'],g['entries'])
+                self.assertEqual(data['status'],'ready')
+                self.assertEqual(data['evaluation_discipline'],'monte')
+                self.assertEqual(data['test_metrics']['catboost']['races'],7)
+                saved=json.loads(output.execute('SELECT body FROM predictions').fetchone()[0])
+                self.assertEqual(saved['test_metrics']['catboost']['races'],239)
+            finally:
+                archive.close();output.close()
+
     def test_immutable_forecasts_field_invalidation_and_no_archive_writes(self):
         with tempfile.TemporaryDirectory() as temp:
             path=Path(temp)/'archive.sqlite3'
@@ -144,6 +214,8 @@ class CatBoostIntegrationTests(unittest.TestCase):
     def test_real_grouped_training_serialization_and_prediction(self):
         from catboost import CatBoostRanker
         groups,_=f.build_features([group('2026-08-01'),group('2026-08-02'),group('2026-08-03')])
+        groups[1]['race']['monte']=True
+        groups,_=f.build_features(groups)
         model=CatBoostRanker(loss_function='QuerySoftMax',iterations=3,depth=2,thread_count=2,allow_writing_files=False)
         model.fit(p.pool(groups),verbose=False)
         with tempfile.TemporaryDirectory() as temp:

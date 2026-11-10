@@ -62,7 +62,8 @@ Known disqualified/nonfinishing starters remain in the field as non-winners.
 Their times are excluded from comparable ordinary performances; gallop codes
 also inform prior history when the separate gallop flag is false. Unknown
 outcomes remain excluded from evaluation. Target-race and same-day/future outcomes
-remain excluded from features. Monté remains unsupported pending separate validation.
+remain excluded from features. A later [monté implementation](predictions.md)
+adds discipline-aware features and supersedes the feature-version-2 model below.
 
 The current artifact is `data/models/20261110T145450Z-d6e5c544`, feature version 2.
 Old artifacts remain unchanged and cannot generate new predictions through the

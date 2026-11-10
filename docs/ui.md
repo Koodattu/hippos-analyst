@@ -433,3 +433,103 @@ counts. At 1914×958, Vonkaisu's expansion was 254px tall with both person summa
 visible. At 390×844 the expansion fit a 315px content width, the chevron remained
 at the visible right edge, and there was no document horizontal overflow or nested
 vertical scroll container. No backend or collection changes were needed.
+
+
+### Independent calendar columns — 10 November 2026
+
+Above 1000px, the calendar fills the available viewport below the navigation.
+The race-day sidebar and the complete selected-race column scroll independently;
+wheel scrolling stays in the column under the pointer. The race table grows to
+its full content height and only scrolls horizontally when needed. In-place race
+selection preserves both column positions. Other pages retain document scrolling,
+and narrow screens retain the horizontal meeting list and normal page flow.
+
+The racecard no longer renders the model explanation/evaluation disclosure or
+the data-information footer. Win probabilities remain in their sortable column,
+with evaluation metrics available on **Ennusteet**. The race's latest field-update
+time now sits beside its status in the header and wraps below the metadata on
+small screens. Per-horse odds observations remain available in expanded details.
+
+Verification: all 37 existing frontend tests, JavaScript syntax and diff whitespace
+checks passed. Browser checks at 1280×720 and 1440×1000 confirmed independent
+scrolling (page and table vertical offsets stayed zero), full table height, and
+pointer race selection retaining sidebar/right-column offsets. At 390×844 the
+page had no horizontal document overflow or nested vertical scrolling; the update
+time remained visible in the responsive header.
+
+Follow-up edge alignment: the desktop calendar disables the unused document
+scrollbar gutter, removes main's right/bottom padding and width cap, and removes
+the extra padding between the racecard and its scrollbar. The header now spans
+the viewport and both scrolling columns reach its bottom; the race column's
+scrollbar sits at the right edge. Internal card spacing is preserved.
+Verified viewport-edge bounds at 1280×720 and 2560×1080, visually checked
+1918×960, and confirmed independent wheel scrolling without vertical table
+overflow. At 390×844 the normal mobile flow still has no horizontal document
+overflow. This follow-up changes CSS only.
+
+Scrollbar polish uses rounded sage-green thumbs, transparent tracks and a stronger
+hover color. Chromium/WebKit scrollbars use a 10px track with an inset thumb;
+other engines use native thin, colored scrollbars. Header navigation uses lighter
+thumbs against its dark background. Forced-colors mode keeps system styling.
+Verified desktop thumb dragging scrolls only the intended column, viewport-edge
+alignment is retained, and mobile horizontal scrollbars introduce no document
+overflow. No scrolling logic or dependencies changed.
+
+### Compact race-day sidebar — 10 November 2026
+
+The sticky controls now use single-line period shortcuts, an automatically applied
+track selector and a collapsed custom-date section. The custom-date inputs share
+a row, with their submit button inside that section. Removing the enclosing filter
+card and redundant track label/button reduces the closed desktop controls to about
+145px. The track selector retains its accessible label.
+
+Meeting cards omit collection counts and result badges; the selected race still
+shows its result status. Cancellation warnings remain. Today/tomorrow badges sit
+beside the date, and missing event names no longer render a placeholder line.
+Hover and keyboard focus on the meeting link highlight the card with a soft sage
+background; unselected cards also gain a muted green border. Race-number links
+instead highlight only the number with a stronger pale-green fill and border.
+Venue names no longer underline on hover. The selected card retains its stronger
+border and left stripe, and the current race number stays dark green. Browser
+checks confirmed separate card/number hover states, keyboard focus highlighting
+only its target, and preserved selection styling. These changes affect CSS only.
+Verified automatic track filtering, custom-date submission, returning to the
+nearby period, desktop layout and 390×844 mobile layout without horizontal document
+overflow. All 37 frontend tests, module syntax and diff whitespace checks passed.
+
+### Race quick-scan detail — 10 November 2026
+
+The Matka column remains for handicap races and any field with differing, missing
+or header-inconsistent distances. Uniform non-handicap fields use the distance in
+the header. Quick-form strips omit PAIKALLIS; expanded history labels those starts
+Paikallisravit. Other start-type labels remain. Source data and model inputs are
+unchanged. See [the distance audit](distance-and-race-types.md) for exceptions and
+verification; all 38 frontend tests passed.
+
+### Podium placings — 10 November 2026
+
+The race table's Sija column highlights confirmed first, second and third places
+with compact gold, silver and bronze badges. Bold rank numbers remain the primary
+cue, so color is not required to interpret them. Other results stay neutral.
+Tied placings retain their source suffix and matching medal color; scratches,
+disqualifications, unknown results and unresolved result codes never get badges.
+Verified real Jokimaa results and placing sort order in the browser. All 39
+frontend tests, module syntax and diff whitespace checks passed.
+
+### Inline calendar filters — 10 November 2026
+
+The archive shortcut reads **Kaikki**. The current date range sits beside
+**Ravipäivät**, while the track selector and **Valitse päivämäärät** disclosure
+share an equal-width row. Expanded **Alkaen**, **Päättyen** and **Näytä** controls
+fit on one row with native date inputs. Closed desktop controls occupy about
+117px; expanded controls about 173px.
+
+The date disclosure has no resting border or filled background. Its keyboard
+focus styling remains. The submit button is 64px wide, leaving two 97px date
+inputs in the desktop sidebar. Verified full dates and calendar icons remain
+visible, with all three controls aligned and no horizontal overflow on desktop
+or at 390px width. This spacing follow-up changes CSS only.
+
+Verified track selection, date submission and heading-range updates in the browser
+at 1280×720, plus the expanded layout at 390×844 without horizontal overflow.
+All 39 frontend tests, module syntax and diff whitespace checks passed.

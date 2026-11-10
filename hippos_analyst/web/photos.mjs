@@ -12,13 +12,14 @@ export function photoFigure(photo, name, compact = false) {
   if (!photo || !/^\/media\/[a-f0-9]{64}\.jpg$/.test(photo.url)) {
     return compact ? '' : `<div class="photo-placeholder">${e(t.noPhoto)}</div>`;
   }
-  const source = external(photo.source_url, 'commons.wikimedia.org');
+  const hippos = photo.provider === 'hippos';
+  const source = external(photo.source_url, hippos ? 'heppa.hippos.fi' : 'commons.wikimedia.org');
   const licence = external(photo.license_url, 'creativecommons.org');
-  if (!source || !licence) return compact ? '' : `<div class="photo-placeholder">${e(t.noPhoto)}</div>`;
+  if (!source || (!hippos && !licence)) return compact ? '' : `<div class="photo-placeholder">${e(t.noPhoto)}</div>`;
   return `<figure class="profile-photo${compact ? ' compact-photo' : ''}">
     <div class="photo-frame"><img src="${e(photo.url)}" alt="${e(t.photoOf(name))}" width="${Number(photo.width)||640}" height="${Number(photo.height)||480}" decoding="async" ${compact ? 'loading="lazy"' : ''}><span class="photo-error" hidden>${e(t.photoUnavailable)}</span></div>
-    <figcaption>${e(t.photoCredit(photo.author))} · <a href="${e(licence)}" target="_blank" rel="noreferrer">${e(photo.license)}</a>
-      <details><summary>${e(t.photoDetails)}</summary><a href="${e(source)}" target="_blank" rel="noreferrer">${e(photo.title)}</a>${photo.attribution ? `<p>${e(photo.attribution)}</p>` : ''}${photo.credit ? `<p>${e(photo.credit)}</p>` : ''}${photo.description ? `<p>${e(photo.description)}</p>` : ''}<p>${e(photo.thumbnail ? t.photoThumbnail : t.photoOriginal)}</p></details>
+    <figcaption>${hippos ? e(t.photoHippos) : `${e(t.photoCredit(photo.author))} · <a href="${e(licence)}" target="_blank" rel="noreferrer">${e(photo.license)}</a>`}
+      <details><summary>${e(t.photoDetails)}</summary><a href="${e(source)}" target="_blank" rel="noreferrer">${e(photo.title)}</a>${hippos ? `<p>${e(t.photoHipposRights)}</p>` : ''}${photo.attribution ? `<p>${e(photo.attribution)}</p>` : ''}${photo.credit ? `<p>${e(photo.credit)}</p>` : ''}${photo.description ? `<p>${e(photo.description)}</p>` : ''}<p>${e(photo.thumbnail ? t.photoThumbnail : t.photoOriginal)}</p></details>
     </figcaption></figure>`;
 }
 

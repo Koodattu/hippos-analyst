@@ -29,6 +29,12 @@ replacing data. Indirect cycles are bounded during discovery and display.
 
 ## Collection and storage
 
+**10 November update:** [expanded collection](collection-expansion.md) raises new
+participant roots to 100/day in batches of ten, retaining two ancestor generations.
+Profile parser 3 retains additional reviewed racing metadata and advertised horse
+photos. Older profiles were queued once for this upgrade; no recurring profile
+refresh was added. The earlier minimal contract above is historical.
+
 The normal collector now permits four endpoint families: daily calendars, race
 lists, fields, and horse profiles. All share the same worker lock, ledger,
 spacing, UTC daily budget, cooldowns and persistent stops. Browsing never queues

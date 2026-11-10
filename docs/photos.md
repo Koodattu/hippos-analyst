@@ -69,8 +69,11 @@ These are historical photographs, not current appearance guarantees.
 | Tuomas Pakkanen | 2049000527740092354 | Driver, trainer | [Photo](https://commons.wikimedia.org/wiki/File:Tuomas_Pakkanen_at_Mikkeli.jpg) · Markus Kauppinen · CC BY-SA 4.0 |
 | Antti Teivainen | 6925177551314408008 | Trainer | [Photo](https://commons.wikimedia.org/wiki/File:Antti_Teivainen_at_Mikkeli.jpg) · Markus Kauppinen · CC BY-SA 4.0 |
 
-Other horses and people remain without a photo until a reviewed source is
-assigned. Hippos/Heila images are not automatically imported: Hippos's
+Other people remain without a photo until a reviewed source is assigned.
+As of 10 November, profile-advertised Hippos horse JPEGs are cached automatically
+through the shared collector, with exact-ID checks and bounded requests; see
+[collection expansion](collection-expansion.md). Existing Commons assignments
+are preserved. Hippos source photos do not inherit Commons licences. Hippos's
 [gallery guidance](https://www.hippos.fi/hevoskasvatus/heila-jalostusjarjestelman-kuvagalleria-avautuu/)
 requires photographer permission for public reuse. The inspected Toto runner
 samples did not establish a portrait feed. Commercial data/photo feeds remain

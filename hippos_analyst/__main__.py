@@ -43,6 +43,7 @@ def parser():
     profiles.add_argument('--priority', type=int, default=110)
     profiles.add_argument('--refresh', action='store_true', help='Refresh the explicitly selected horse profile')
     commands.add_parser("status", help="Show stored counts, queue and persistent stop state")
+    commands.add_parser('audit-fields', help='List observed source field names and retention decisions; no network')
     repair = commands.add_parser('repair-results', help='Report runner parser coverage; optionally queue old fields once')
     repair.add_argument('--enqueue', action='store_true', help='Requeue old successful runner fields under the shared worker lock')
     stop = commands.add_parser("pause", help="Persistently stop further collection")
@@ -132,6 +133,8 @@ def main(argv=None):
             return 2 if outcome in ("paused", "retry", "failed") else 0
         elif args.command == "status":
             display(store.status(db))
+        elif args.command == 'audit-fields':
+            display([dict(r) for r in db.execute('SELECT * FROM source_fields ORDER BY kind,name')])
         elif args.command == 'import-commons-photo':
             from . import photos
             with collector.worker_lock(args.db):

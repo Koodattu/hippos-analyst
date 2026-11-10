@@ -1,4 +1,4 @@
-"""Explicitly curated Commons photos. Browsing never fetches remote media."""
+"""Curated Commons and metered Hippos horse photos; browsing uses local bytes."""
 
 import hashlib
 import json
@@ -8,7 +8,7 @@ from html.parser import HTMLParser
 from urllib.parse import urlencode, urlsplit
 from urllib.request import Request, build_opener
 
-from .api import NoRedirects
+from .api import NoRedirects, SchemaError, BASE_URL, horse_id
 
 MAX_BYTES = 8 * 1024 * 1024
 KINDS = ('horse', 'driver', 'trainer')
@@ -184,7 +184,32 @@ def get(db, kind, entity_id):
     metadata = json.loads(row['metadata'])
     return {key: metadata[key] for key in ('title', 'author', 'credit', 'attribution', 'license', 'license_url',
                                          'source_url', 'description', 'thumbnail')} | {
-        'url': f"/media/{row['sha256']}.jpg", 'width': row['width'], 'height': row['height']}
+        'url': f"/media/{row['sha256']}.jpg", 'width': row['width'], 'height': row['height'],
+        'provider': metadata.get('provider','commons')}
+
+
+def hippos_metadata(response, context):
+    """A photo advertised by the exact horse profile; no inferred ownership/licence."""
+    if (response.headers or {}).get('content-type','').split(';')[0].strip() != 'image/jpeg':
+        raise SchemaError('Expected image/jpeg for horse photo')
+    try:
+        width,height = jpeg_size(response.body)
+    except ValueError as exc:
+        raise SchemaError(str(exc)) from exc
+    return {'sha256':hashlib.sha256(response.body).hexdigest(),'width':width,'height':height,
+            'provider':'hippos','title':context['name'],'author':'','credit':'','attribution':'',
+            'license':'','license_url':'','description':'','thumbnail':False,
+            'source_url':BASE_URL+'/images/horse/photo/'+horse_id(context['id']),
+            'file_timestamp':context.get('lastModified'),'retrieved_at':time.time()}
+
+
+def save_hippos(db, metadata, body, context):
+    # Never replace a manually reviewed/curated assignment. Caller owns transaction.
+    db.execute('INSERT OR IGNORE INTO photo_assets VALUES(?,?,?,?,?)',
+               (metadata['sha256'],body,metadata['width'],metadata['height'],json.dumps(metadata)))
+    db.execute('INSERT OR IGNORE INTO profile_photos VALUES(?,?,?,?,?)',
+               ('horse',context['id'],metadata['sha256'],context['name'],
+                'Photo URL supplied by the exact Hippos horse profile; private local archive.'))
 
 
 def image(db, path):
