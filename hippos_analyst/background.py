@@ -16,8 +16,8 @@ from . import collector, maintenance, store
 def run(database, *, continuous=False, delay=30, daily_budget=200,
         clock=time.time, sleep=time.sleep, fetch=None, emit=print):
     """Use the same lock/ledger as manual collection; never clear stops or jobs."""
-    if not 15 <= delay <= 3600 or not 1 <= daily_budget <= 1000:
-        raise ValueError('Use 15–3600 second spacing and a 1–1000 daily budget')
+    if not 15 <= delay <= 3600 or not 1 <= daily_budget <= 2000:
+        raise ValueError('Use 15–3600 second spacing and a 1–2000 daily budget')
     with collector.worker_lock(database):
         db = store.connect(database)
         try:

@@ -27,7 +27,7 @@ RACES = [{"race": {"date": DAY, "trackCode": "H", "startNumber": "1",
 RUNNERS = [{"date": DAY, "trackCode": "H", "startNumber": "1", "programNumber": "7",
             "horseId": HORSE_ID, "horseName": "Test Horse", "horseBreed": "L",
             "placing": "1", "kilometerTime": "1.17.8", "price": "2000", "absent": False,
-            "ownerName": "Do not retain", "chipNo": "Do not retain", "commentText": "Do not retain"}]
+            "ownerName": "Test Ownership", "chipNo": "Do not retain", "commentText": "Do not retain"}]
 
 
 class Clock:
@@ -93,7 +93,9 @@ class CollectorTests(unittest.TestCase):
         self.run_worker()
         bodies = " ".join(row[0] for row in self.db.execute("SELECT body FROM snapshots"))
         self.assertNotIn("Do not retain", bodies)
-        self.assertNotIn("ownerName", bodies)
+        self.assertIn("Test Ownership", bodies)
+        self.assertNotIn("chipNo", bodies)
+        self.assertNotIn("commentText", bodies)
         self.assertIn("Test Horse", bodies)
 
     def test_restart_resumes_without_redownloading_done_jobs(self):

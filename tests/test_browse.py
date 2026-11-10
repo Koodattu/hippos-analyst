@@ -55,6 +55,22 @@ class BrowseTests(unittest.TestCase):
         self.assertEqual(self.read('directory/people')['total'],0)
         self.assertEqual(self.read('directory/horses')['rows'][0]['entries'],0)
 
+    def test_zero_placing_disqualification_is_a_result_not_an_upcoming_start(self):
+        self.save('runners',[{**self.runner,'placing':'0','disqualifiedCode':'hpl','driverId':'123','driverName':'Test'}])
+        activity=self.read('activity',role='driver',id='123',period='history')
+        self.assertEqual(activity['summary']['results'],1)
+        self.assertEqual(activity['summary']['wins'],0)
+        self.assertEqual(activity['summary']['upcoming'],0)
+        self.assertEqual(activity['rows'][0]['data']['disqualifiedCode'],'hpl')
+        horses=self.read('directory/horses')
+        self.assertEqual(horses['rows'][0]['last_date'],DAY)
+        self.assertIsNone(horses['rows'][0]['next_date'])
+        people=self.read('directory/people',role='driver')
+        self.assertIsNone(people['rows'][0]['next_date'])
+        legacy=Archive(self.db).person('driver','123',DAY)
+        self.assertEqual(legacy['summary']['results'],1)
+        self.assertEqual(legacy['summary']['upcoming'],0)
+
     def test_activity_global_numeric_sort_and_stale_page(self):
         self.field()
         # One trainer is associated with all runners; the driver IDs remain distinct.

@@ -73,18 +73,21 @@ Source links open the Heppa home page; stable deep links are not yet verified.
 ## Result semantics
 
 Observed upcoming entries have `placing="0"` and `price="0"`. Some historical
-entries also have a zero placing. Until the source codebook is verified, the UI
-shows zero placing as a dash and does not count it as an explicit result. It also
-hides the prize for these entries. Source values remain unchanged in SQLite.
-Other result codes are displayed as supplied; they are not translated into guessed
-disqualification or finishing categories. Numeric result sorting is not a codebook.
+entries also have a zero placing. A zero without a companion result code is shown
+as a dash, is not counted as an explicit result and has its prize hidden. A supplied
+`disqualifiedCode` is an explicit result even with zero placing. The UI renders
+`hlo` plus `106` as `hlo6`, other supplied codes as codes, and unresolved legacy
+100-series values in brackets. Source values remain unchanged in SQLite.
+See [result parsing](result-parsing.md) for meanings and refetch progress.
 
 Explicit first places (`1` and the equality suffix `1=`) count as **Ykkössijaa**,
-excluding scratches. These counts include trial/pony races; they are not career
+excluding scratches and disqualifications. These counts include trial/pony races; they are not career
 competition-win statistics. **Lähtömerkintää** includes upcoming fields and scratches.
 **Tulosmerkintää** means an explicit nonzero placing/code, not all completed starts.
 Absence of results is not inferred from the date. No odds or winnings predictions
-are shown. Timestamps identify when each local snapshot was fetched, not live data.
+are implied by these counts. Experimental model probabilities have separate
+provenance and eligibility rules. Timestamps identify when each local snapshot
+was fetched, not live data.
 
 ## API and persistence
 

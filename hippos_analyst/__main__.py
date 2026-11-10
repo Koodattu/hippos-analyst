@@ -43,6 +43,8 @@ def parser():
     profiles.add_argument('--priority', type=int, default=110)
     profiles.add_argument('--refresh', action='store_true', help='Refresh the explicitly selected horse profile')
     commands.add_parser("status", help="Show stored counts, queue and persistent stop state")
+    repair = commands.add_parser('repair-results', help='Report runner parser coverage; optionally queue old fields once')
+    repair.add_argument('--enqueue', action='store_true', help='Requeue old successful runner fields under the shared worker lock')
     stop = commands.add_parser("pause", help="Persistently stop further collection")
     stop.add_argument("--reason", default="Stopped by operator")
     commands.add_parser("resume", help="Clear a stop after investigating; respects Retry-After")
@@ -86,6 +88,13 @@ def main(argv=None):
             db.close()
             db = None
             serve(args.db, args.port)
+        elif args.command == 'repair-results':
+            from . import result_repair
+            if args.enqueue:
+                with collector.worker_lock(args.db), db:
+                    display(result_repair.plan(db,enqueue=True))
+            else:
+                display(result_repair.plan(db))
         elif args.command == "seed":
             start, end = date.fromisoformat(args.start), date.fromisoformat(args.end)
             if end < start or (end - start).days >= 366:

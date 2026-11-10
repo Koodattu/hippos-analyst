@@ -51,7 +51,9 @@ Node.js is only needed to run the frontend logic tests. See [UI and verification
 [Veikkaus Toto enrichment](docs/toto.md) is available for explicitly selected races.
 [Track profiles](docs/tracks.md) include a Finland map and photo cards, venue facts,
 credited local photographs and links to collected meetings and races.
-Weather integration and prediction models remain planned.
+Experimental [CatBoost win predictions](docs/predictions.md) are implemented with
+optional local training dependencies and a sortable racecard probability column.
+Weather integration remains planned.
 The software licence does not grant rights to the upstream datasets.
 
 [Horse and people photos](docs/photos.md) can be imported from reviewed,

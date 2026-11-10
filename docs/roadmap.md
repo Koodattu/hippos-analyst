@@ -75,6 +75,10 @@ of the racecourse surface condition.
 
 ## 5. Prediction experiments
 
+The [first CatBoost experiment](predictions.md) is implemented: chronological
+evaluation, optional local training, immutable predictions and racecard probabilities.
+The broader goals below remain the direction; see that report for verified scope.
+
 Start with a simple baseline, then compare a more flexible tabular model. Candidate
 features: prior kilometre times, start method, distance, lane/handicap, layoff length,
 gallop history and past driver/trainer performance. Account for breed and monte.

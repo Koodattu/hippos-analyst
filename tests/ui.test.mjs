@@ -4,6 +4,27 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { coverageState, hasResult, isWinner, historyStats, resultText, kilometerTime, splitStarts, orderEntries, localDay, addDays, route, parseRoute, dateRange, escapeHtml, calendarSelection, calendarParams, calendarPage, raceOrder, withRaceOrder, horseReturnRoute } from '../hippos_analyst/web/model.mjs';
 
+test('source disqualifications and retirement display without inventing placings', () => {
+  assert.equal(resultText({placing:'106',disqualifiedCode:'hlo'},'placing'),'hlo6');
+  assert.equal(resultText({placing:'106'},'placing'),'[106]');
+  assert.equal(resultText({placing:'0',disqualifiedCode:'hll'},'placing'),'hll');
+  assert.equal(resultText({placing:'0',disqualifiedCode:'K'},'placing'),'k');
+  assert.equal(resultText({placing:'0',disqualifiedCode:'new-code'},'placing'),'new-code');
+  assert.equal(isWinner({placing:'1',disqualifiedCode:'hyl'}),false);
+  assert.equal(hasResult({placing:'0',disqualifiedCode:'hll'}),true);
+  assert.equal(hasResult({placing:'0',disqualifiedCode:null}),false);
+  const rows=[{horseId:'1',placing:'106',disqualifiedCode:'hlo'},{horseId:'2',placing:'2'},{horseId:'3',placing:'0',disqualifiedCode:'k'}];
+  assert.equal(orderEntries(rows,'result')[0].horseId,'2');
+});
+
+test('prediction results preserve filters and page when returning from a race or horse', () => {
+  const results = route('predictions',{from:'2026-10-12',to:'2026-11-09',mode:'backtest',offset:'30'});
+  assert.deepEqual(horseReturnRoute(results),parseRoute(results));
+  const race = calendarRaceRoute({date:'2026-11-09',track:'L',number:'3',returnTo:results});
+  assert.deepEqual(horseReturnRoute(parseRoute(race).params.returnTo),parseRoute(results));
+  assert.equal(sameView(parseRoute(results),parseRoute(route('predictions',{mode:'forecast'}))),true);
+});
+
 test('track navigation preserves directory search and meeting history while changing venues resets the view', () => {
   const directory = route('tracks', {q:'Äimä',offset:'30'});
   const profile = route('track', {id:'hippos-O',period:'history',offset:'30',returnTo:directory});
@@ -291,4 +312,16 @@ test('race links open the calendar selection and retain the originating profile'
   assert.equal(target.params.number,'21');
   assert.equal(target.params.returnTo,'#/person?role=driver&id=123');
   assert.equal(target.params.sort,'placing');
+});
+
+
+test('prediction identity, scratches, unavailable states and probability sorting', async () => {
+  const { runnerPrediction } = await import('../hippos_analyst/web/model.mjs');
+  const entries = [{horseId:'1',programNumber:'1'}, {horseId:'2',programNumber:'2'}, {horseId:'3',programNumber:'3',absent:true}];
+  const prediction = {status:'ready',runners:[{horse_id:'1',number:'1',probability:.2},{horse_id:'2',number:'2',probability:.8}]};
+  assert.equal(runnerPrediction(entries[0],prediction).probability,.2);
+  assert.equal(runnerPrediction({...entries[0],horseId:'wrong'},prediction),null);
+  assert.equal(runnerPrediction(entries[2],prediction),null);
+  assert.equal(runnerPrediction(entries[0],{...prediction,status:'changed_field'}),null);
+  assert.deepEqual(orderEntries(entries,{sort:'prediction',dir:'desc'},{},null,prediction).map(e=>e.horseId),['2','1','3']);
 });

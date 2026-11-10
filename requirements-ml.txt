@@ -1,0 +1,2 @@
+# Optional local training environment; the web server and collector stay stdlib-only.
+catboost==1.2.10

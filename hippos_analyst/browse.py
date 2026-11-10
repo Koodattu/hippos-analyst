@@ -22,7 +22,10 @@ def visible(archive):
             for m in archive.meeting_rows()
             for r in (archive.head(api.races_path(m['date'], m['track'])) or ([], None))[0]]
     return """WITH visible AS (
-        SELECT e.* FROM json_each(?) v JOIN entries e
+        SELECT e.*, result_known(e.absent,e.placing,json_extract(e.data,'$.disqualifiedCode')) AS result_known,
+            result_win(e.absent,e.placing,json_extract(e.data,'$.disqualifiedCode')) AS result_win,
+            result_place(e.absent,e.placing,json_extract(e.data,'$.disqualifiedCode')) AS result_place
+        FROM json_each(?) v JOIN entries e
         ON e.date=json_extract(v.value,'$[0]') AND e.track=json_extract(v.value,'$[1]')
         AND e.race_number=json_extract(v.value,'$[2]')) """, [json.dumps(keys)]
 
@@ -86,8 +89,8 @@ def directory_records(archive, kind, today):
     source, args = visible(archive)
     if kind == 'horses':
         source += """, activity AS (SELECT horse_id,count(*) AS entries,
-            max(CASE WHEN date<? OR (NOT absent AND trim(coalesce(placing,'')) NOT IN ('','0')) THEN date END) AS last_date,
-            min(CASE WHEN date>=? AND (absent OR trim(coalesce(placing,'')) IN ('','0')) THEN date END) AS next_date
+            max(CASE WHEN date<? OR result_known THEN date END) AS last_date,
+            min(CASE WHEN date>=? AND NOT result_known THEN date END) AS next_date
             FROM visible GROUP BY horse_id)
             SELECT h.*,coalesce(a.entries,0) AS entries,a.last_date,a.next_date,
                 json_extract(p.data,'$.gender') AS gender,
@@ -99,14 +102,14 @@ def directory_records(archive, kind, today):
     else:
         archive.db.create_aggregate('latest_name',6,LatestName)
         source += """, roles(role) AS (VALUES ('driver'),('trainer')), people_entries AS (
-            SELECT horse_id,date,absent,placing,fetched_at,track,race_number,program_number,role,
+            SELECT horse_id,date,absent,placing,fetched_at,track,race_number,program_number,role,result_known,
                 CAST(json_extract(data,'$.'||role||'Id') AS TEXT) AS id,
                 trim(coalesce(json_extract(data,'$.'||role||'Name'),'')) AS name
             FROM visible CROSS JOIN roles WHERE id IS NOT NULL AND id NOT IN ('','0'))
             SELECT id,role,latest_name(name,fetched_at,date,track,race_number,program_number) AS name,
                 count(DISTINCT horse_id) AS horses,count(*) AS entries,
-                max(CASE WHEN date<? OR (NOT absent AND trim(coalesce(placing,'')) NOT IN ('','0')) THEN date END) AS last_date,
-                min(CASE WHEN date>=? AND (absent OR trim(coalesce(placing,'')) IN ('','0')) THEN date END) AS next_date,
+                max(CASE WHEN date<? OR result_known THEN date END) AS last_date,
+                min(CASE WHEN date>=? AND NOT result_known THEN date END) AS next_date,
                 max(fetched_at) AS fetched_at FROM people_entries GROUP BY role,id
             UNION ALL SELECT party_key,role,label,count(*),NULL,NULL,NULL,max(p.fetched_at)
                 FROM horse_parties r JOIN horse_profiles p ON p.horse_id=r.horse_id GROUP BY role,party_key,label"""
@@ -189,8 +192,8 @@ def activity(archive, params, limit=30):
         person_name(CAST(json_extract(v.data,'$.driverId') AS TEXT),json_extract(v.data,'$.driverName')) AS driver_name,
         person_name(CAST(json_extract(v.data,'$.trainerId') AS TEXT),json_extract(v.data,'$.trainerName')) AS trainer_name,
         json_extract(v.data,'$.distance') AS distance,
-        (NOT absent AND trim(coalesce(placing,'')) NOT IN ('','0')) AS has_result,
-        (v.date>=? AND (absent OR trim(coalesce(placing,'')) IN ('','0'))) AS upcoming
+        result_known AS has_result,
+        (v.date>=? AND NOT result_known) AS upcoming
         FROM visible v JOIN meetings m ON m.date=v.date AND m.track=v.track
         JOIN races r ON r.date=v.date AND r.track=v.track AND r.number=v.race_number WHERE {condition}) """
     args += [today, identity]
@@ -202,7 +205,7 @@ def activity(archive, params, limit=30):
             max(fetched_at) AS fetched_at"""
     summary = dict(archive.db.execute(source + """SELECT count(*) AS entries,count(DISTINCT horse_id) AS horses,
         coalesce(sum(has_result),0) AS results,
-        coalesce(sum(has_result AND trim(placing) IN ('1','1=')),0) AS wins,
+        coalesce(sum(result_win),0) AS wins,
         coalesce(sum(upcoming),0) AS upcoming""" + identity_columns + ' FROM scoped', args).fetchone())
     if role != 'horse' and not summary['entries']:
         raise LookupError('Person not found')
@@ -217,7 +220,7 @@ def activity(archive, params, limit=30):
         else summary['entries']-summary['upcoming'])
     if period == 'horses':
         source += """, filtered AS (SELECT horse_id AS id,max(horse_name) AS name,count(*) AS entries,
-            max(CASE WHEN date<? OR (NOT absent AND trim(coalesce(placing,'')) NOT IN ('','0')) THEN date END) AS last_date,
+            max(CASE WHEN date<? OR result_known THEN date END) AS last_date,
             min(CASE WHEN upcoming THEN date END) AS next_date FROM scoped
             WHERE instr(fold(horse_name),?)>0 GROUP BY horse_id)"""
         args += [today, query.casefold()]
@@ -236,7 +239,7 @@ def activity(archive, params, limit=30):
         columns = {'date': 'date', 'name': 'fold(horse_name) COLLATE FINNISH', 'track': 'fold(city) COLLATE FINNISH',
                    'number': 'number(program_number)', 'distance': 'number(distance)',
                    'driver': "nullif(fold(driver_name),'') COLLATE FINNISH", 'trainer': "nullif(fold(trainer_name),'') COLLATE FINNISH",
-                   'placing': 'CASE WHEN has_result THEN number(placing) END',
+                   'placing': 'result_place',
                    'time': 'CASE WHEN has_result THEN number(kilometer_time) END',
                    'prize': 'CASE WHEN has_result THEN number(prize) END'}
         columns['status'] = 'absent'

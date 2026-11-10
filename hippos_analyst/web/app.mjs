@@ -2,7 +2,7 @@ import { loadSaved, toggleSaved } from './saved.mjs';
 import { trackMap } from './track-map.mjs';
 import { photoFigure, handlePhotoError } from './photos.mjs';
 import { fi as t } from './locales/fi.mjs';
-import { escapeHtml as e, localDay, addDays, route, parseRoute, dateRange, orderEntries, coverageState, kilometerTime, splitStarts, isWinner, hasResult, resultText, calendarSelection, calendarParams, calendarPage, raceOrder, horseReturnRoute, personReturnRoute, personReference, returnContext, sameView, runnerMarket, equipmentCodes, nextSort, calendarRaceRoute } from './model.mjs';
+import { escapeHtml as e, localDay, addDays, route, parseRoute, dateRange, orderEntries, coverageState, kilometerTime, splitStarts, isWinner, hasResult, resultText, calendarSelection, calendarParams, calendarPage, raceOrder, horseReturnRoute, personReturnRoute, personReference, returnContext, sameView, runnerPrediction, runnerMarket, equipmentCodes, nextSort, calendarRaceRoute } from './model.mjs';
 
 const app = document.querySelector('#app');
 app.addEventListener('error', handlePhotoError, true);
@@ -38,7 +38,7 @@ async function api(path, params = {}) {
 function shell(name) {
   const horses = ['horses', 'horse'].includes(name);
   app.innerHTML = `<header class="app-header"><a href="#/calendar" class="brand"><span class="brand-mark">${icon('horse')}</span><span>${e(t.brand)}</span></a>
-    <nav aria-label="${e(t.workspace)}">${link('calendar', {}, `${icon('calendar')}<span>${e(t.calendar)}</span>`, ['calendar', 'meeting', 'race'].includes(name) ? 'nav-link active' : 'nav-link')}${link('horses', {}, `${icon('horse')}<span>${e(t.horses)}</span>`, horses ? 'nav-link active' : 'nav-link')}${link('people', {}, e(t.people), ['people', 'person', 'party'].includes(name) ? 'nav-link active' : 'nav-link')}${link('tracks', {}, `${icon('pin')}<span>${e(t.tracks)}</span>`, ['tracks','track'].includes(name) ? 'nav-link active' : 'nav-link')}${link('saved', {}, e(t.saved), name === 'saved' ? 'nav-link active' : 'nav-link')}${link('coverage', {}, e(t.coverageTitle), name === 'coverage' ? 'nav-link active' : 'nav-link')}</nav>
+    <nav aria-label="${e(t.workspace)}">${link('calendar', {}, `${icon('calendar')}<span>${e(t.calendar)}</span>`, ['calendar', 'meeting', 'race'].includes(name) ? 'nav-link active' : 'nav-link')}${link('predictions', {}, e(t.predictionNav), name === 'predictions' ? 'nav-link active' : 'nav-link')}${link('horses', {}, `${icon('horse')}<span>${e(t.horses)}</span>`, horses ? 'nav-link active' : 'nav-link')}${link('people', {}, e(t.people), ['people', 'person', 'party'].includes(name) ? 'nav-link active' : 'nav-link')}${link('tracks', {}, `${icon('pin')}<span>${e(t.tracks)}</span>`, ['tracks','track'].includes(name) ? 'nav-link active' : 'nav-link')}${link('saved', {}, e(t.saved), name === 'saved' ? 'nav-link active' : 'nav-link')}${link('coverage', {}, e(t.coverageTitle), name === 'coverage' ? 'nav-link active' : 'nav-link')}</nav>
     </header>
     <main id="main" tabindex="-1"><div class="loading" role="status">${e(t.loading)}</div></main>`;
 }
@@ -87,6 +87,23 @@ async function calendarView(params) {
       return `<article class="meeting-card${selected ? ' selected' : ''}"><a class="meeting-select" href="${e(route('calendar', calendarParams(params, m, m.races[0]?.number)))}" ${selected ? 'aria-current="true"' : ''}><div class="meeting-meta"><strong>${e(dateText(m.date, { weekday: 'short', year: undefined }))}</strong><span>${e(m.start_time ? t.at(m.start_time.slice(0, 5)) : t.unknown)}</span></div><h3>${e(trackName(m))}</h3><p class="meeting-name">${e(m.name || t.unknown)}</p><div class="meeting-bottom">${m.canceled || m.data.hasPublishedResults ? badge(label, m.canceled ? 'warning' : 'success') : ''}${m.date === today ? badge(t.today, 'accent') : m.date === addDays(today, 1) ? badge(t.tomorrow, 'accent') : ''}<span>${e(t.fields(m.collected_races, m.race_count))}</span></div></a>
       <div class="quick-races" aria-label="${e(t.raceHeading)}">${m.races.map(r => `<a href="${e(route('calendar', calendarParams(params, m, r.number)))}" aria-label="${e(t.directRace(r.number))}" ${selected && selection.number === r.number ? 'aria-current="true"' : ''}>${e(r.number)}</a>`).join('')}</div></article>`;
     }).join('')}</div></section><section class="selected-race" id="selected-race" aria-label="${e(t.selectedMeeting)}" tabindex="-1">${data.meetings.length ? detail : empty(t.empty, t.emptyHint, link('calendar', { ...sorting, range: 'all', track: params.track || '' }, e(t.archive), 'button'))}</section></div>`;
+}
+
+async function predictionResultsView(params) {
+  const today = localDay(new Date(overview.now));
+  const filters = {from:params.from || addDays(today,-30),to:params.to || today,mode:params.mode || 'backtest'};
+  const data = await api('predictions/results',{...filters,offset:params.offset || '0'});
+  const summary = data.summary;
+  const probability = value => value == null ? t.unknown : percent(value);
+  const decimal = value => value == null ? t.unknown : value.toLocaleString('fi-FI',{minimumFractionDigits:2,maximumFractionDigits:2});
+  const horse = runner => link('horse',{id:runner.id,returnTo:returnContext(location.hash)},e(runner.name));
+  return `${header(t.predictionResults,'')}
+    <form id="prediction-filter" class="filters"><label>${e(t.from)}<input name="from" type="date" value="${e(filters.from)}" required></label><label>${e(t.to)}<input name="to" type="date" value="${e(filters.to)}" required></label><label>${e(t.predictionResults)}<select name="mode"><option value="backtest" ${filters.mode==='backtest'?'selected':''}>${e(t.predictionBacktest)}</option><option value="forecast" ${filters.mode==='forecast'?'selected':''}>${e(t.predictionForecast)}</option></select></label><button class="button primary">${e(t.apply)}</button></form>
+    <div class="summary-strip">${stats([[summary.evaluated||0,t.predictionEvaluated],[probability(summary.hit_rate),t.predictionHitRate],[probability(summary.market_hit_rate),t.predictionMarketRate],[summary.unscored||0,t.predictionUnscored]])}</div>
+    <p class="prediction-note">${e(filters.mode==='backtest'?t.predictionRetrospective:t.predictionProspective)} ${data.fit_cutoff?e(t.predictionCutoff(dateText(data.fit_cutoff))):''}</p>
+    ${data.rows.length?`<div class="table-scroll" tabindex="0" role="region" aria-label="${e(t.predictionResults)}"><table class="prediction-results-table"><thead><tr>${[t.date,t.meeting,t.predictionPick,t.winProbability,t.modelOdds,t.predictionWinner,t.predictionOutcome].map(label=>`<th scope="col">${e(label)}</th>`).join('')}</tr></thead><tbody>${data.rows.map(row=>`<tr><td>${e(dateText(row.date))}</td><td>${link('race',{date:row.date,track:row.track,number:row.number,sort:'prediction',dir:'desc',returnTo:returnContext(location.hash)},`${e(overview.tracks[row.track]||row.track)}<small>${e(t.race(row.number))}</small>`)}</td><td>${row.picks.map(horse).join('<br>')}</td><td class="numeric">${e(probability(row.picks[0].probability))}</td><td class="numeric">${e(decimal(row.picks[0].model_odds))}</td><td>${horse(row.winner)}<small>${e(probability(row.winner.probability))} · ${e(t.predictionRank(row.winner_rank))}</small></td><td>${badge(row.hit_credit===1?t.predictionHit:row.hit_credit>0?t.predictionTie:t.predictionMiss,row.hit_credit>0?'success':'')}</td></tr>`).join('')}</tbody></table></div>${peoplePagination('predictions',filters,data,t.predictionResults)}`:empty(t.predictionNoResults,t.predictionNoResultsHint)}
+    <details class="prediction-note"><summary>${e(t.predictionMetrics)}</summary><p>${e(t.predictionMetricText(decimal(summary.log_loss),decimal(summary.brier),decimal(summary.market_log_loss),summary.market_races||0))}</p><p>${e(t.predictionOddsMeaning)}</p></details>
+    ${Object.keys(data.excluded).length?`<details class="prediction-note"><summary>${e(t.predictionExcluded)}</summary><ul>${Object.entries(data.excluded).map(([key,value])=>`<li>${e(t.predictionReasons[key]||t.unknown)}: ${e(value)}</li>`).join('')}</ul></details>`:''}`;
 }
 
 async function coverageView(params) {
@@ -219,8 +236,23 @@ function raceSort(params = parseRoute(location.hash).params) {
 
 function raceTable(entries, order = 'program', form = {}, toto = null) {
   const sort = raceSort();
-  const columns = [['number',t.number],['name',t.horse],['form',t.priorForm],['driver',t.driver],['distance',t.distance],['odds',t.winOdds],['placing',t.placing],['time',t.kmTime],['prize',t.prize]];
-  return `<div class="table-scroll" tabindex="0" role="region" aria-label="${e(t.racecard)}"><table class="runner-table"><thead><tr>${columns.map(([key,label])=>sortHeader(key,label,sort,key==='form'?t.formSort:'')).join('')}${chevronHeader}</tr></thead><tbody>${orderEntries(entries,sort,form,toto).map(r => `<tr class="expandable ${r.absent ? 'scratched' : isWinner(r) ? 'winner' : ''}" ${disclosure('horse',r.horseId,r.horseName,currentRace.meeting.date)} data-runner="${e(r.horseId)}" data-entry="${e(JSON.stringify(r))}"><td><div class="number-cell"><span class="program-number">${e(r.programNumber)}</span></div></td><td>${link('horse',{id:r.horseId,returnTo:returnContext(location.hash)},e(r.horseName),'horse-name')}<small>${e(t.trainer)}: ${personLink(r,'trainer')}</small><small class="equipment">${e(equipmentText(r))}</small></td><td class="form-cell">${recentForm(form[r.horseId])}</td><td>${personLink(r,'driver')}</td><td class="numeric">${e(r.distance || t.unknown)}</td>${oddsCell(r,toto)}<td><span class="place ${isWinner(r)?'first':''}">${e(r.absent?t.absent:resultText(r,'placing',t.unknown))}</span></td><td class="numeric">${e(kilometerTime(r,t.unknown))}</td><td class="numeric">${hasResult(r)&&r.price!=null&&r.price!==''?`${e(r.price)} €`:t.unknown}</td>${chevronCell}</tr>`).join('')}</tbody></table></div>`;
+  const columns = [['number',t.number],['name',t.horse],['prediction',t.winProbability],['form',t.priorForm],['driver',t.driver],['distance',t.distance],['odds',t.winOdds],['placing',t.placing],['time',t.kmTime],['prize',t.prize]];
+  return `<div class="table-scroll" tabindex="0" role="region" aria-label="${e(t.racecard)}"><table class="runner-table"><thead><tr>${columns.map(([key,label])=>sortHeader(key,label,sort,key==='form'?t.formSort:'')).join('')}${chevronHeader}</tr></thead><tbody>${orderEntries(entries,sort,form,toto,currentRace.prediction).map(r => `<tr class="expandable ${r.absent ? 'scratched' : isWinner(r) ? 'winner' : ''}" ${disclosure('horse',r.horseId,r.horseName,currentRace.meeting.date)} data-runner="${e(r.horseId)}" data-entry="${e(JSON.stringify(r))}"><td><div class="number-cell"><span class="program-number">${e(r.programNumber)}</span></div></td><td>${link('horse',{id:r.horseId,returnTo:returnContext(location.hash)},e(r.horseName),'horse-name')}<small>${e(t.trainer)}: ${personLink(r,'trainer')}</small><small class="equipment">${e(equipmentText(r))}</small></td>${predictionCell(r,currentRace.prediction)}<td class="form-cell">${recentForm(form[r.horseId])}</td><td>${personLink(r,'driver')}</td><td class="numeric">${e(r.distance || t.unknown)}</td>${oddsCell(r,toto)}<td><span class="place ${isWinner(r)?'first':''}">${e(r.absent?t.absent:resultText(r,'placing',t.unknown))}</span></td><td class="numeric">${e(kilometerTime(r,t.unknown))}</td><td class="numeric">${hasResult(r)&&r.price!=null&&r.price!==''?`${e(r.price)} €`:t.unknown}</td>${chevronCell}</tr>`).join('')}</tbody></table></div>`;
+}
+
+const percent = value => (value*100).toLocaleString('fi-FI',{maximumFractionDigits:1})+' %';
+function predictionCell(entry, prediction) {
+  const runner = runnerPrediction(entry,prediction);
+  return `<td class="numeric prediction-cell" ${runner ? `title="${e(t.predictionHistory(runner.history_count))}"` : ''}><strong>${runner ? e(percent(runner.probability)) : e(t.unknown)}</strong></td>`;
+}
+function predictionSummary(prediction) {
+  if(prediction?.status !== 'ready') {
+    const message = prediction?.status === 'unknown_result' ? t.predictionUnknownResult : prediction?.status === 'changed_field' ? t.predictionChanged : prediction?.status === 'stale' ? t.predictionStale : prediction?.status === 'unsupported' ? t.predictionUnsupported : t.predictionMissing;
+    return `<p class="prediction-note">${e(message)}</p>`;
+  }
+  const scores = prediction.test_metrics;
+  const mode = prediction.mode === 'backtest' ? t.predictionBacktest : t.predictionForecast;
+  return `<details class="prediction-note"><summary>${e(t.predictionModel)} · ${e(mode)} · ${e(t.predictionDetails)}</summary><p>${e(prediction.mode === 'backtest' ? t.predictionTestNote : t.updated(timestamp(prediction.created_at)))}</p><p>${e(t.predictionTraining(dateText(prediction.training_end)))}</p><p>${e(t.predictionScore(scores.catboost.races,percent(scores.catboost.top_pick_rate),percent(scores.recent_form.top_pick_rate),scores.market_final_retrospective.races ? percent(scores.market_final_retrospective.top_pick_rate) : t.unknown))}</p></details>`;
 }
 
 function raceDetail(data, calendarContext = {}) {
@@ -228,14 +260,14 @@ function raceDetail(data, calendarContext = {}) {
   return `<div class="selected-heading"><div><h2>${e(trackName(m))}</h2><p>${e(dateText(m.date,{weekday:'long'}))} · ${e(m.name||'')}</p></div>${venueLink(m)}</div>
     ${m.canceled?badge(t.canceled,'warning'):''}<nav class="race-tabs" aria-label="${e(t.raceHeading)}">${races.map(item=>link('calendar',calendarParams(calendarContext,m,item.number),e(t.race(item.number)),item.number===r.number?'selected':'')).join('')}</nav>
     <section class="race-detail"><div class="race-heading"><div><h2>${e(t.race(r.number))} <span>${e(r.data.plannedTime?t.at(r.data.plannedTime):'')}</span></h2><p>${e(raceMeta(r))} · ${e(r.entry_count===null?t.noUpdate:t.entries(entries.length))}</p></div>${badge(r.has_results?t.results:r.field_fetched_at?t.racecard:t.incomplete)}</div>
-    <div id="race-table">${r.field_fetched_at===null?empty(t.noField,''):!entries.length?empty(t.emptyField,''):raceTable(entries,'program',data.form,data.toto)}</div>
+    ${predictionSummary(data.prediction)}<div id="race-table">${r.field_fetched_at===null?empty(t.noField,''):!entries.length?empty(t.emptyField,''):raceTable(entries,'program',data.form,data.toto)}</div>
     <div class="table-footer">${note(t.formHint+' '+t.resultHint+' '+t.oddsHint)}${totoStatus(data.toto)}${freshness(r.field_fetched_at)}</div></section>`;
 }
 
 function originBack(returnTo) {
   if (!returnTo) return '';
   const back = horseReturnRoute(returnTo);
-  const labels = {people:t.backPeople,horses:t.backHorses,horse:t.backHorse,person:t.backPerson,party:t.backParty,saved:t.backSaved,calendar:t.backCalendar,race:t.backRace,tracks:t.backTracks,track:t.backTrack};
+  const labels = {predictions:t.predictionResults,people:t.backPeople,horses:t.backHorses,horse:t.backHorse,person:t.backPerson,party:t.backParty,saved:t.backSaved,calendar:t.backCalendar,race:t.backRace,tracks:t.backTracks,track:t.backTrack};
   return link(back.name,back.params,`${icon('back')}${e(labels[back.name])}`,'back-link');
 }
 
@@ -409,6 +441,14 @@ function submitFilters(form) {
 }
 
 function bind() {
+  const predictionFilter = document.querySelector('#prediction-filter');
+  predictionFilter?.addEventListener('submit', event => {
+    event.preventDefault();
+    const values = Object.fromEntries(new FormData(predictionFilter));
+    predictionFilter.elements.to.setCustomValidity(values.to < values.from ? t.invalidRange : '');
+    if(predictionFilter.reportValidity()) location.hash = route('predictions',values);
+  });
+  predictionFilter?.addEventListener('input',()=>predictionFilter.elements.to.setCustomValidity(''));
   const calendar = document.querySelector('#calendar-filter');
   calendar?.addEventListener('submit',event=>{
     event.preventDefault();
@@ -506,7 +546,7 @@ function sortTable(button) {
   history.replaceState(null,'',route(name,next));
   const table=document.querySelector('#race-table table'),body=table.tBodies[0];
   const rows=new Map([...body.querySelectorAll(':scope > tr[data-runner]')].map(row=>[row.dataset.runner,{row,preview:row.nextElementSibling?.classList.contains('horse-preview')?row.nextElementSibling:null}]));
-  for(const entry of orderEntries(currentRace.entries,raceSort(next),currentRace.form,currentRace.toto)) {
+  for(const entry of orderEntries(currentRace.entries,raceSort(next),currentRace.form,currentRace.toto,currentRace.prediction)) {
     const item=rows.get(entry.horseId);body.append(item.row);if(item.preview)body.append(item.preview);
   }
   for(const control of table.querySelectorAll('[data-sort]')) {
@@ -578,7 +618,7 @@ async function render(focus = false) {
     const freshOverview = await api('overview');
     if (turn !== generation) return;
     overview = freshOverview;
-    const views = { calendar: calendarView, meeting: meetingView, tracks: tracksView, track: trackView, horses: horsesView, horse: horseView, saved: savedView, coverage: coverageView, people: peopleView, person: personView, party: partyView };
+    const views = { predictions: predictionResultsView, calendar: calendarView, meeting: meetingView, tracks: tracksView, track: trackView, horses: horsesView, horse: horseView, saved: savedView, coverage: coverageView, people: peopleView, person: personView, party: partyView };
     if (!views[name]) throw Object.assign(new Error('Unknown page'), { status: 404 });
     const content = await views[name](params);
     if (turn !== generation) return;

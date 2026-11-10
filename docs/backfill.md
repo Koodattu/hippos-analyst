@@ -40,13 +40,13 @@ Report coverage as observed snapshots, never a verified copy of the provider.
 ## Active operating policy
 
 At the owner's explicit request, with the daily cap raised on 3 November, use one standalone continuous
-worker with **15-second request spacing and 1,000 combined attempts per UTC day**.
+worker with **15-second request spacing and 2,000 combined attempts per UTC day**.
 These are local ceilings, not provider-approved limits. The ledger is never reset.
 The Windows hourly/sign-in task was stopped and removed, and its installer was
 removed from the repository. There is no OS schedule, service or Codex heartbeat.
 
 ```powershell
-python -m hippos_analyst.background --continuous --delay 15 --daily-budget 1000 --db data/hippos.sqlite3
+python -m hippos_analyst.background --continuous --delay 15 --daily-budget 2000 --db data/hippos.sqlite3
 ```
 
 The running windowless worker uses the same command with `pythonw.exe`. It holds
@@ -1512,3 +1512,53 @@ persisted attempts, permits exactly one more, blocks a restarted pass that day,
 and preserves the ledger when the next day becomes eligible. Values above 1,000
 are rejected; Toto's existing budget guard still rejects the larger budget.
 The worker is left running; current progress is in the log and coverage UI.
+
+
+## 10 November 2026 — increased daily cap and restarted
+
+The owner requested another start and more attempts per day. The selected cap is
+2,000 combined attempts per UTC day, retaining 15-second spacing, shared worker
+locking, persistent request accounting and all provider/schema stop protections.
+No sign-in trigger, service or scheduled task was added. CLI defaults and Toto's
+stricter limits remain unchanged.
+
+Preflight found a free worker lock, no persistent pause or failed jobs, and zero
+attempts today. The expired cooldown was preserved. The archive contained 269
+meetings, 3,072 races, 29,971 entries, 5,546 horse identities and 327 profiles;
+31 jobs were pending. The last prior batch reached its 1,000-attempt cap on
+5 November, with historical requests reaching May 2026; this does not establish
+complete history or final results. Earlier frontier figures above are dated
+checkpoints, not current coverage claims.
+
+All 135 Python tests passed, including the revised 2,000-attempt boundary,
+restart enforcement, next-day eligibility without ledger resets, and rejection
+of budgets above 2,000. Started standalone worker PID 42000 with
+`--continuous --delay 15 --daily-budget 2000`. Live startup verification is
+recorded in `data/hippos.background.log`.
+
+## 10 November 2026 — versioned result repair
+
+Checkpoint **14:58 UTC / 16:58 Helsinki**. The [runner parser repair](result-parsing.md)
+is deployed locally. All 3,212 previously observed fields were included in the
+version-4 refetch queue; 18 had a current observation and **3,194 remained pending**.
+These are parser-repair counts, not a completed calendar frontier or complete
+horse histories. Ordinary discovery and refreshes continue through the same worker.
+
+Counts: 279 meetings, 3,216 races, 31,543 entries, 5,660 horse identities and 351
+profiles. Zero failed jobs, no persistent stop or active cooldown. The expired
+cooldown value was preserved. Today's ledger had 296 attempts; minimum request-start
+spacing was 15.000049 seconds. SQLite integrity_check was `ok`; foreign_key_check
+returned no violations.
+
+The previous worker exited gracefully under an explicitly marked local maintenance
+pause; only that matching marker was cleared after checking failures/cooldown.
+No provider pause, ledger or budget was reset. Final-parser worker PID 56060 runs
+`--continuous --delay 15 --daily-budget 2000` with the shared lock. The refetch takes
+multiple days. No second collector, Toto polling, service or sign-in hook was added.
+
+The server restarted on port 8766 (PID 42920), and forecasting restarted against
+feature-version-2 model `20261110T145450Z-d6e5c544` (launcher PID 34908). Live read
+models/browser checks verified Jokimaa race 2's `hlo6`, zero-placing `hpl`, history
+membership and historical prediction. Sixty eligible forecasts were available;
+watcher stderr was empty. Tests passed: 159 Python and 36 JavaScript. Full result
+recovery remains pending; `python -m hippos_analyst repair-results` reports progress.

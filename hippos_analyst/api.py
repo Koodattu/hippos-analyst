@@ -100,8 +100,11 @@ def fetch(path):
 
 MEETING_FIELDS = "date trackCode startTime name eventType trackShortname trackType trackNumber meetNumber trackCondition temperature trackCity trackName canceled hasPublishedResults isFreeToPublish majorRace finnishTrack latitude longitude formattedTrackName".split()
 RACE_FIELDS = "date trackCode startNumber categoryNumber plannedTime actualTime startType startForm monte totoResultsReady publishFree eventType baseDistance finnishTrack trackNumber firstPrice priceSum status specialRace".split()
-RUNNER_FIELDS = "date trackCode startNumber startForm monte programNumber lane distance placing totalTime kilometerTime shortKilometerTime price winOdds winOddsStr horseId horseName horseBreed horseRegistrationCountry trainerId trainerName driverId driverName driverFirstName driverLastName gallop absent shoesFront shoesBack americanSulkyKEX startType testStartAccepted finnishTrack trackNumber horsePriceSum record recordType recordMonte status startAmount condition expectedValue trainerCommentsUpdated distanceCode shortCarRecord shortRecord".split()
-BOOLEAN_FIELDS = frozenset('absent canceled hasPublishedResults monte finnishTrack totoResultsReady publishFree isFreeToPublish gallop'.split())
+RUNNER_PARSER_VERSION = 4
+RUNNER_FIELDS = "date trackCode startNumber startForm monte programNumber lane distance placing disqualifiedCode totalTime kilometerTime shortKilometerTime price winOdds winOddsStr horseId horseName horseBreed horseRegistrationCountry trainerId trainerName driverId driverName driverFirstName driverLastName gallop absent shoesFront shoesBack americanSulkyKEX startType testStartAccepted finnishTrack trackNumber horsePriceSum record recordType recordMonte status startAmount condition expectedValue trainerCommentsUpdated distanceCode shortCarRecord shortRecord carRecord carRecordType carRecordMonte".split()
+RUNNER_FIELDS += 'driverShortFirstName originalDriverId originalDriverFirstName originalDriverLastName originalDriverShortFirstName ownerName winOdds2'.split()
+RUNNER_FIELDS += 'finishing placementExpectations hasEquipmentChanges equipmentChangesText'.split()
+BOOLEAN_FIELDS = frozenset('absent canceled hasPublishedResults monte finnishTrack totoResultsReady publishFree isFreeToPublish gallop hasEquipmentChanges carRecordMonte'.split())
 
 
 def selected(record, fields):
@@ -170,6 +173,11 @@ def normalize(kind, payload, context):
             output.append(record)
         elif kind == "runners":
             record = selected(item, RUNNER_FIELDS)
+            # Missing/null means no source code, not a field lost by an old importer.
+            code = item.get('disqualifiedCode')
+            if code is not None and not isinstance(code, str):
+                raise SchemaError('Expected text for disqualifiedCode')
+            record['disqualifiedCode'] = code
             if 'absent' not in record:
                 raise SchemaError('Missing scratch indicator')
             record['startNumber'] = identifier(record.get('startNumber'))
@@ -187,7 +195,7 @@ def normalize(kind, payload, context):
             if record["programNumber"] in seen:
                 raise SchemaError("Duplicate participant number")
             seen.add(record["programNumber"])
-            for key in ("driverId", "trainerId"):
+            for key in ("driverId", "trainerId", "originalDriverId"):
                 if record.get(key) is not None:
                     record[key] = str(record[key])
             output.append(record)

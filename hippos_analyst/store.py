@@ -50,6 +50,10 @@ def connect(path):
         );
         CREATE INDEX IF NOT EXISTS requests_time ON requests(started_at);
         CREATE INDEX IF NOT EXISTS requests_path_success ON requests(path, id DESC) WHERE outcome='ok';
+        CREATE TABLE IF NOT EXISTS source_fields (
+            kind TEXT NOT NULL, name TEXT NOT NULL, retained INTEGER NOT NULL,
+            first_seen REAL NOT NULL, last_seen REAL NOT NULL, PRIMARY KEY(kind,name)
+        );
         CREATE TABLE IF NOT EXISTS meetings (
             date TEXT NOT NULL, track TEXT NOT NULL, name TEXT, start_time TEXT, city TEXT,
             canceled INTEGER, data TEXT NOT NULL, fetched_at REAL NOT NULL,
@@ -159,9 +163,12 @@ def enqueue_refresh(db, path, kind, context, priority, now, interval=86400):
 def save_response(db, job, records, request_id, now):
     """Called inside a transaction: archive, materialize and discover together."""
     body = encode(records)
-    digest = hashlib.sha256(body.encode("utf-8")).hexdigest()
-    db.execute("INSERT OR IGNORE INTO snapshots(path,sha256,first_seen,body) VALUES(?,?,?,?)",
-               (job["path"], digest, now, body))
+    from .api import RUNNER_PARSER_VERSION
+    version = RUNNER_PARSER_VERSION if job['kind'] == 'runners' else 1
+    # Separate parser generations even for empty fields; never relabel old evidence.
+    digest = hashlib.sha256((body if version == 1 else str(version)+':'+body).encode("utf-8")).hexdigest()
+    db.execute("INSERT OR IGNORE INTO snapshots(path,sha256,first_seen,body,parser_version) VALUES(?,?,?,?,?)",
+               (job["path"], digest, now, body, version))
     snapshot_id = db.execute("SELECT id FROM snapshots WHERE path=? AND sha256=?",
                              (job["path"], digest)).fetchone()[0]
     context = json.loads(job["context"])

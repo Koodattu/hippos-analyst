@@ -57,28 +57,28 @@ class BackgroundTests(unittest.TestCase):
         self.assertEqual(self.db.execute('SELECT count(*) FROM requests').fetchone()[0], 200)
         self.assertEqual(self.db.execute('SELECT count(*) FROM jobs').fetchone()[0], 0)
 
-    def test_thousand_attempt_cap_is_enforced_across_restarts(self):
+    def test_two_thousand_attempt_cap_is_enforced_across_restarts(self):
         with self.db:
-            for _ in range(999):
+            for _ in range(1999):
                 self.db.execute("INSERT INTO requests(path,started_at) VALUES('test',?)", (self.clock(),))
         calls = []
-        options = dict(delay=15, daily_budget=1000, clock=self.clock,
+        options = dict(delay=15, daily_budget=2000, clock=self.clock,
                        sleep=self.clock.sleep, emit=lambda _: None)
         result = background.run(self.path, fetch=lambda path: (calls.append(path) or response([])), **options)
         self.assertEqual(result, 'budget')
         self.assertEqual(len(calls), 1)
-        self.assertEqual(self.db.execute('SELECT count(*) FROM requests').fetchone()[0], 1000)
+        self.assertEqual(self.db.execute('SELECT count(*) FROM requests').fetchone()[0], 2000)
         self.assertEqual(background.run(self.path, fetch=lambda _: self.fail('Cap bypassed'), **options), 'budget')
         self.clock.now += 86400
         self.assertEqual(background.run(self.path, fetch=lambda _: api.Response(403), **options), 'paused')
-        self.assertEqual(self.db.execute('SELECT count(*) FROM requests').fetchone()[0], 1001)
+        self.assertEqual(self.db.execute('SELECT count(*) FROM requests').fetchone()[0], 2001)
 
     def test_budget_ceiling_and_toto_limits_remain_bounded(self):
-        for call in [lambda: background.run(self.path, daily_budget=1001),
-                     lambda: maintenance.run(self.db, '2026-11-03', daily_budget=1001),
-                     lambda: collector.run(self.db, daily_budget=1001),
+        for call in [lambda: background.run(self.path, daily_budget=2001),
+                     lambda: maintenance.run(self.db, '2026-11-03', daily_budget=2001),
+                     lambda: collector.run(self.db, daily_budget=2001),
                      lambda: collector.run(self.db, provider='toto', delay=60,
-                                           max_requests=1, daily_budget=1000)]:
+                                           max_requests=1, daily_budget=2000)]:
             with self.assertRaises(ValueError):
                 call()
         self.assertEqual(self.db.execute('SELECT count(*) FROM requests').fetchone()[0], 0)

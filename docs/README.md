@@ -7,8 +7,12 @@ in this directory alongside implementation changes.
 - [API research and sources](api-research.md): observed contracts, alternative feeds and uncertainties.
 - [Horse and people photos](photos.md): reviewed Commons imports, local image storage, attribution and initial coverage.
 - [Veikkaus Toto enrichment](toto.md): access, historical evidence, bounded observations and linked UI.
+- [Historical odds investigation](toto-history-research.md): existing odds coverage, final prices versus pre-race histories, and proposed collection.
+- [Prediction experiment plan](prediction-plan.md): features, models and chronological evaluation.
+- [Implemented CatBoost predictions](predictions.md): measured results, racecards, training and local forecast worker.
 - [Track profiles](tracks.md): venue identities, curated facts, licensed images and linked meeting history.
 - [Collection and operations](collection.md): commands, limits, pause behaviour and refreshes.
+- [Result parsing and repair](result-parsing.md): disqualification codes, field inventory, versioned refetch and model handling.
 - [Active backfill policy and progress](backfill.md): slow scheduled continuation, coverage frontier and stop rules.
 - [Archive growth verification](archive-growth.md): paged calendars and the 100,000-horse fixture.
 - [Architecture and data](architecture.md): SQLite, snapshots, identifiers and data boundaries.
@@ -23,6 +27,6 @@ in this directory alongside implementation changes.
 - [Audit fixes and verification](audit-fixes-2026-10-22.md): all eight findings resolved, regression coverage, and before/after performance.
 
 The implementation includes a bounded Hippos collector, local command-line reader
-and Finnish web UI, plus optional Veikkaus Toto enrichment. Weather and prediction models remain planned.
+and Finnish web UI, optional Veikkaus Toto enrichment and experimental CatBoost predictions. Weather remains planned.
 A standalone continuous worker continues the backfill independently of Codex; see
 [background operation and controls](background.md).

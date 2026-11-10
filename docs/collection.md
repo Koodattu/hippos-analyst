@@ -5,7 +5,7 @@ Run commands from the repository root with Python 3.11+. No installation needed.
 `data/hippos.sqlite3`, excluded from Git.
 
 The current [backfill policy](backfill.md) uses a standalone continuous worker,
-15-second spacing and 1,000 attempts per UTC day (requested on 3 November 2026). The CLI defaults
+15-second spacing and 2,000 attempts per UTC day (requested on 10 November 2026). The CLI defaults
 below remain available; historical run notes describe their settings at that time.
 
 Optional [Veikkaus Toto enrichment](toto.md) uses `seed-toto` and `run-toto`.
@@ -34,7 +34,7 @@ unless `--refresh` is specified. A seed command accepts up to 366 days.
 - Default 15 seconds between request starts, including across runs. Minimum 10.
 - Default maximum 25 requests per run; default 500 per UTC day, persisted in SQLite.
   Both budgets can be lowered; per-run requests cannot exceed 500 and the Hippos
-  daily budget cannot exceed 1,000. Use one database for the
+  daily budget cannot exceed 2,000. Use one database for the
   provider so the ledger includes all normal collection work.
 - These are project-selected conservative limits, **not Hippos-approved limits**.
 - No automatic redirect following, cookies, login, proxy rotation or bypass of blocks.
@@ -215,7 +215,7 @@ schedule argument. The command holds the existing worker lock through planning
 and all three collection phases. It has no background subprocesses and does not
 clear pauses, reset budgets or retry failed jobs. The bounded CLI defaults to 30-second
 spacing and 200 combined attempts per UTC day. The continuous worker now uses
-the owner-approved 15-second spacing and 1,000-attempt daily cap. Any failed job now blocks both
+the owner-approved 15-second spacing and 2,000-attempt daily cap. Any failed job now blocks both
 ordinary providers and maintenance until investigated.
 
 Each wake-up permits at most 20 refresh, 10 profile and 10 historical requests.
@@ -249,7 +249,7 @@ another month's seeds; twelve consecutive observed empty months stop expansion
 for investigation. Profile completion never establishes racing-history coverage.
 
 The owner replaced the Windows schedule with a standalone continuous worker on
-2 November 2026. It runs immediately with `--continuous --delay 15 --daily-budget 1000`,
+2 November 2026. It runs immediately with `--continuous --delay 15 --daily-budget 2000`,
 without a sign-in trigger, OS service or Codex automation. It keeps the shared lock
 for its lifetime, calculates the current Helsinki date per pass, records rotating
 logs/status and checks SQLite integrity. It continues between batches without
@@ -263,3 +263,12 @@ without a chat agent. Unexpected background errors also persist a pause while
 preserving an existing provider reason and cooldown. The worker never
 clears these pauses or retries failed-status jobs. Transient errors end the pass;
 a later pass after the stored cooldown (at least 60 seconds) may retry a pending job.
+
+## Result parser repair — 10 November 2026
+
+The [versioned runner repair](result-parsing.md) retains companion result codes
+and additional reviewed racing fields, inventories received field names, and
+queues old snapshots for one bounded refetch. The continuous worker consumes the
+already-seeded repair queue under the same ledger, lock, shares and limits.
+`python -m hippos_analyst repair-results` reports current coverage without fetching.
+See [backfill progress](backfill.md) for the dated verification checkpoint.

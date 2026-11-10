@@ -52,7 +52,7 @@ export function withRaceOrder(hash, order) {
 export function horseReturnRoute(returnTo) {
   if (typeof returnTo === 'string' && returnTo.startsWith('#/')) {
     const target = parseRoute(returnTo);
-    if (['horses', 'horse', 'calendar', 'race', 'saved', 'people', 'person', 'party', 'tracks', 'track'].includes(target.name)) return target;
+    if (['horses', 'horse', 'calendar', 'race', 'saved', 'people', 'person', 'party', 'tracks', 'track', 'predictions'].includes(target.name)) return target;
   }
   return { name: 'horses', params: {} };
 }
@@ -100,18 +100,25 @@ export function calendarPage(params, range, offset) {
 }
 
 export function hasResult(entry) {
-  return !entry.absent && !['', '0'].includes(String(entry.placing ?? '').trim());
+  return !entry.absent && (Boolean(String(entry.disqualifiedCode ?? '').trim()) || !['', '0'].includes(String(entry.placing ?? '').trim()));
 }
 
 export function resultText(entry, field, missing = '—') {
   if (!hasResult(entry)) return missing;
+  if (field === 'placing') {
+    const code = String(entry.disqualifiedCode ?? '').trim().toLowerCase();
+    const placing = String(entry.placing ?? '').trim();
+    if (code) return code === 'hlo' && /^1\d{2}$/.test(placing) && Number(placing)>100 ? `${code}${Number(placing)-100}` : code;
+    // Preserve unresolved numeric codes explicitly; never invent a finishing place.
+    if (/^\d+$/.test(placing) && Number(placing)>=100) return `[${placing}]`;
+  }
   const value = entry[field];
   return value === null || value === undefined || value === '' ? missing : String(value);
 }
 
 export function isWinner(entry) {
   // Accept an explicit first place or Hippos's equality suffix, never codes or scratches.
-  return hasResult(entry) && /^1=?$/.test(String(entry.placing).trim());
+  return hasResult(entry) && !String(entry.disqualifiedCode ?? '').trim() && /^1=?$/.test(String(entry.placing).trim());
 }
 
 export function nextSort(params, key) {
@@ -124,17 +131,25 @@ export function numericValue(value) {
   return match ? Number(match[1].replace(',', '.')) : null;
 }
 
-export function orderEntries(entries, order, form = {}, toto = null) {
+export function runnerPrediction(entry, prediction) {
+  if (entry.absent || prediction?.status !== 'ready') return null;
+  const runner = prediction.runners.find(r => r.horse_id === String(entry.horseId) && r.number === String(entry.programNumber));
+  return runner && Number.isFinite(runner.probability) && runner.probability >= 0 && runner.probability <= 1 ? runner : null;
+}
+
+export function orderEntries(entries, order, form = {}, toto = null, prediction = null) {
   const params = typeof order === 'object' ? order : { sort: order === 'result' ? 'placing' : 'number', dir: 'asc' };
   const resultNumber = (entry, key) => hasResult(entry) ? numericValue(entry[key]) : null;
+  const placingNumber = entry => !String(entry.disqualifiedCode ?? '').trim() && /^[1-9]\d?=?$/.test(String(entry.placing ?? '').trim()) ? resultNumber(entry,'placing') : null;
   const fields = {
     number: entry => numericValue(entry.programNumber), name: entry => entry.horseName,
     driver: entry => entry.driverName || null, trainer: entry => entry.trainerName || null,
     distance: entry => numericValue(entry.distance), odds: entry => numericValue(runnerMarket(entry, toto).value),
-    placing: entry => resultNumber(entry, 'placing'),
+    placing: placingNumber,
+    prediction: entry => runnerPrediction(entry,prediction)?.probability ?? null,
     time: entry => resultNumber(entry, entry.shortKilometerTime ? 'shortKilometerTime' : 'kilometerTime'),
     prize: entry => resultNumber(entry, 'price'),
-    form: entry => form[entry.horseId]?.[0] ? resultNumber(form[entry.horseId][0].data, 'placing') : null,
+    form: entry => { const r = form[entry.horseId]?.[0]?.data; return r ? placingNumber(r) : null; },
   };
   const value = fields[params.sort] || fields.number;
   const collator = new Intl.Collator('fi', { numeric: true, sensitivity: 'base' });

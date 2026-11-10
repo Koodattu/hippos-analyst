@@ -1878,3 +1878,10 @@ tr.expandable:focus-visible { outline: 2px solid var(--green); outline-offset: -
   .profile-identity .photo-frame { height:120px; }
   .profile-identity .page-heading { flex-basis:140px; gap:8px; }
 }
+
+/* Predictions use the existing table flow; no nested scrolling or reserved height. */
+.prediction-note { margin: 0; padding: .5rem 1rem; font-size: .8rem; color: var(--muted, #53655e); border-bottom: 1px solid #e7ebe3; }
+.prediction-note summary { cursor: pointer; }
+.prediction-note p { margin: .5rem 0; }
+.prediction-results-table a { display: inline-block; }
+.prediction-cell { font-variant-numeric: tabular-nums; white-space: nowrap; }

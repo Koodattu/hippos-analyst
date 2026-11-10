@@ -72,8 +72,8 @@ def run(db, today, *, max_requests=40, delay=30, daily_budget=200,
     """Caller holds worker_lock throughout all phases. No background child worker."""
     if not 4 <= max_requests <= 40:
         raise ValueError('Maintenance permits 4–40 requests per wake-up')
-    if not 15 <= delay <= 3600 or not 1 <= daily_budget <= 1000:
-        raise ValueError('Maintenance requires 15–3600 second spacing and a 1–1000 daily budget')
+    if not 15 <= delay <= 3600 or not 1 <= daily_budget <= 2000:
+        raise ValueError('Maintenance requires 15–3600 second spacing and a 1–2000 daily budget')
     state = db.execute('SELECT * FROM control').fetchone()
     if state['paused_reason']:
         emit('Collection remains paused; no work scheduled.')

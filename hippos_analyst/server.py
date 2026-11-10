@@ -7,7 +7,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from urllib.parse import parse_qs, urlsplit
 
-from . import api, toto, browse, tracks, photos
+from . import api, toto, browse, tracks, photos, prediction_store, prediction_results, race_results
 from .person_names import PersonNames, visible_entries
 
 WEB = Path(__file__).with_name("web")
@@ -26,6 +26,7 @@ for _photo in ('vermo', 'teivo', 'track-f', 'track-j', 'track-jo', 'track-k', 't
 class Archive:
     def __init__(self, db, browse_cache=None):
         self.db = db
+        race_results.register_sql(db)
         self.browse_cache = browse_cache
         self.heads = {}
         self._person_names = None
@@ -88,7 +89,7 @@ class Archive:
             race["entry_count"] = len(field[0]) if field else None
             # A date or opaque status code is not evidence of a published result.
             race["has_results"] = bool(field and any(
-                str(r.get("placing") or "").strip() not in ("", "0") and not r.get("absent")
+                race_results.has_result(r)
                 for r in field[0]))
             result.append(race)
         return result
@@ -175,7 +176,8 @@ class Archive:
         form = {entry['horseId']: self.horse_starts(entry['horseId'], before=day, limit=5)
                 for entry in entries}
         return {**meeting, "race": race, "entries": entries, "form": form,
-                "toto": toto.read_race(self.db, day, track, number)}
+                "toto": toto.read_race(self.db, day, track, number),
+                "prediction": prediction_store.read_race(self.db, race['data'], entries)}
 
     def horses(self, query, offset):
         # Python casefold handles Finnish letters; SQLite's built-in LIKE does not.
@@ -256,7 +258,9 @@ class Archive:
                 for m in self.meeting_rows()
                 for r in (self.head(api.races_path(m['date'], m['track'])) or ([], None))[0]]
         sql = f"""WITH source AS (
-            SELECT e.*, CAST(json_extract(e.data,'$.{role}Id') AS TEXT) AS person_id,
+            SELECT e.*, result_known(e.absent,e.placing,json_extract(e.data,'$.disqualifiedCode')) AS result_known,
+                result_win(e.absent,e.placing,json_extract(e.data,'$.disqualifiedCode')) AS result_win,
+                CAST(json_extract(e.data,'$.{role}Id') AS TEXT) AS person_id,
                 trim(coalesce(json_extract(e.data,'$.{role}Name'),'')) AS source_name,
                 person_name(CAST(json_extract(e.data,'$.{role}Id') AS TEXT),
                     trim(coalesce(json_extract(e.data,'$.{role}Name'),''))) AS person_name
@@ -291,8 +295,8 @@ class Archive:
             raise ValueError('Invalid page')
         source, keys = self.people_source(role)
         source += """, person_entries AS (SELECT *,
-            (NOT absent AND trim(coalesce(placing,'')) NOT IN ('','0')) AS has_result,
-            (date>=? AND (absent OR trim(coalesce(placing,'')) IN ('','0'))) AS upcoming
+            result_known AS has_result,
+            (date>=? AND NOT result_known) AS upcoming
             FROM source WHERE person_id=?) """
         args = (keys, today, person_id)
         person = self.db.execute(source + """SELECT person_id AS id,person_name AS name,source_name,fetched_at
@@ -300,7 +304,7 @@ class Archive:
         if person is None:
             raise LookupError('Person not found')
         summary = dict(self.db.execute(source + """SELECT count(*) AS entries,count(DISTINCT horse_id) AS horses,
-            sum(has_result) AS results,sum(has_result AND trim(placing) IN ('1','1=')) AS wins,
+            sum(has_result) AS results,sum(result_win) AS wins,
             sum(upcoming) AS upcoming FROM person_entries""", args).fetchone())
         period = period or ('upcoming' if summary['upcoming'] else 'history')
         total = summary['upcoming'] if period == 'upcoming' else summary['entries'] - summary['upcoming']
@@ -365,6 +369,9 @@ def required(params, key):
 
 def endpoint(archive, path, params):
     flat = {key: value[0] for key, value in params.items()}
+    if path == '/api/predictions/results':
+        return prediction_results.evaluate(archive.db, api.iso_date(required(params,'from')),
+            api.iso_date(required(params,'to')), flat.get('mode','backtest'),int(flat.get('offset','0')))
     if path in ('/api/tracks', '/api/track'):
         required(params, 'today')
         if path == '/api/track':
