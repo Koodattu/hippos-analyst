@@ -52,7 +52,7 @@ export function withRaceOrder(hash, order) {
 export function horseReturnRoute(returnTo) {
   if (typeof returnTo === 'string' && returnTo.startsWith('#/')) {
     const target = parseRoute(returnTo);
-    if (['horses', 'horse', 'calendar', 'race', 'saved', 'people', 'person', 'party', 'tracks', 'track', 'predictions'].includes(target.name)) return target;
+    if (['horses', 'horse', 'calendar', 'race', 'saved', 'people', 'person', 'party', 'tracks', 'track', 'predictions', 'analytics'].includes(target.name)) return target;
   }
   return { name: 'horses', params: {} };
 }

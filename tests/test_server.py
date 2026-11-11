@@ -45,6 +45,55 @@ class ArchiveTests(unittest.TestCase):
             request_id = self.db.execute("INSERT INTO requests(path,started_at,status) VALUES(?,?,200)", (path, self.time)).lastrowid
             store.save_response(self.db, self.db.execute("SELECT * FROM jobs WHERE path=?", (path,)).fetchone(), records, request_id, self.time)
 
+    def test_analytics_counts_competitive_starters_and_attributes_prizes_by_role(self):
+        races = [dict(r,status='2',startType=kind) for r,kind in zip(self.races,['TOTO','KOE','PAIKALLIS'])]
+        self.save('races',races)
+        runner = dict(self.runner,driverId='12',trainerId='34',price='1000',placing='1=')
+        second = dict(runner,programNumber='2',horseId='222',driverId='34',placing='h',price='0',disqualifiedCode='hpl')
+        self.save('runners',[runner,second,dict(runner,programNumber='3',horseId='333',absent=True)])
+        self.save('runners',[runner],number='10')
+        self.save('runners',[dict(runner,placing='0',price='99999')],number='2')
+        cache = {}
+        def read(role='horse', **params):
+            filters = dict(today=DAY,role=role,**params)
+            return endpoint(Archive(self.db,cache),'/api/analytics',{k:[v] for k,v in filters.items()})
+        self.assertEqual(read()['coverage']['races'],1)
+        self.assertEqual(read()['total'],2)
+        trainer = read('trainer')['rows'][0]
+        self.assertEqual((trainer['id'],trainer['starts'],trainer['wins'],trainer['podiums'],trainer['money']),
+                         ('34',2,1,1,1000))
+        self.assertEqual(read('driver',metric='starts')['leaders']['starts']['ties'],2)
+        self.assertEqual(read('driver',metric='rate')['rows'],[])
+        # Updated field changes the winner and includes an unplaced starter.
+        self.save('runners',[dict(runner,placing='0',price='0'),dict(second,placing='1',disqualifiedCode='',price='300')])
+        self.assertEqual(read()['rows'][0]['id'],'222')
+        self.assertEqual(read('trainer')['rows'][0]['starts'],2)
+        self.assertEqual(read('trainer')['rows'][0]['money'],300)
+        self.save('races',races[1:])
+        self.assertEqual(read()['total'],0)
+        self.save('races',races)
+        self.save('calendar',[dict(self.meeting,canceled=True)])
+        self.assertEqual(read()['total'],0)
+        with self.assertRaises(ValueError):
+            read(metric='unknown')
+
+    def test_analytics_periods_rank_ties_and_win_rate_threshold(self):
+        for i in range(11):
+            day = f'2026-10-{i+1:02}'
+            self.save('calendar',[dict(self.meeting,date=day)],day)
+            self.save('races',[dict(self.races[0],date=day,status='2',startType='PAIKALLIS')],day)
+            self.save('runners',[dict(self.runner,date=day,placing='1='),
+                                 dict(self.runner,date=day,horseId='2',programNumber='2',placing='1=')],day)
+        def read(today,period,metric):
+            return endpoint(Archive(self.db),'/api/analytics',dict(today=[today],period=[period],metric=[metric]))
+        board = read('2026-10-10','year','rate')
+        self.assertEqual([r['rank'] for r in board['rows']],[1,1])
+        self.assertEqual(board['rows'][0]['rate'],1)
+        self.assertEqual(board['coverage']['last'],'2026-10-10')
+        self.assertEqual(read('2026-11-08','month','starts')['rows'][0]['starts'],2)
+        self.assertEqual(read('2026-11-09','month','starts')['rows'][0]['starts'],1)
+        self.assertEqual(read('2027-01-01','year','wins')['total'],0)
+
     def test_saved_horses_are_bounded_and_return_only_current_or_future_entries(self):
         self.save("runners", [self.runner])
         data = endpoint(Archive(self.db), '/api/saved', {'ids': [HORSE + ',999'], 'from': [DAY]})

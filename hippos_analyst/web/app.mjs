@@ -14,6 +14,7 @@ const icon = name => {
     horseshoe: '<path d="m5 3 4 1.5C7.5 7.6 6.5 10 6.5 12.7a5.5 5.5 0 0 0 11 0c0-2.7-1-5.1-2.5-8.2L19 3c1.7 3.6 2.5 6.8 2.5 9.7a9.5 9.5 0 0 1-19 0C2.5 9.8 3.3 6.6 5 3Z"/><path d="M4.6 11.5v.7m14.8-.7v.7M8 18.7l.6.3m7.4-.3-.6.3"/>',
     people: '<circle cx="9" cy="8" r="3.4"/><path d="M2.5 20v-1.5a6.5 6.5 0 0 1 13 0V20M15.5 4.9a3.4 3.4 0 0 1 0 6.4M18 14a5.4 5.4 0 0 1 3.5 5.1V20"/>',
     bookmark: '<path d="M6 4.5A1.5 1.5 0 0 1 7.5 3h9A1.5 1.5 0 0 1 18 4.5V21l-6-4-6 4Z"/>',
+    analytics: '<path d="M4 4v16h17M8 16v-4m5 4V6m5 10V9"/>',
     arrow: '<path d="M5 12h14m-5-5 5 5-5 5"/>', back: '<path d="M19 12H5m5-5-5 5 5 5"/>',
     search: '<circle cx="10.5" cy="10.5" r="6.5"/><path d="m16 16 5 5"/>',
     pin: '<path d="M19 10c0 5-7 11-7 11S5 15 5 10a7 7 0 0 1 14 0Z"/><circle cx="12" cy="10" r="2"/>',
@@ -50,6 +51,7 @@ function shell(name) {
       ${navItem('people', t.people, 'people', ['people','person','party'])}
       ${navItem('tracks', t.tracks, 'pin', ['tracks','track'])}
       ${navItem('saved', t.saved, 'bookmark')}
+      ${navItem('analytics', t.analytics, 'analytics')}
     </nav>
     <nav class="utility-nav" aria-label="${e(t.secondaryNav)}">
       ${navItem('predictions', t.predictionNav)}
@@ -129,6 +131,48 @@ async function coverageView(params) {
     ${note(t.coverageMeaning + " " + t.sourceTime + " " + t.localHint)}${overview.toto?.targets ? `<section class="toto-coverage"><h2>${e(t.totoTitle)}</h2><p>${e(t.totoCount(overview.toto.matched, overview.toto.observations))} · ${e(t.queue(overview.toto.pending))}</p>${overview.toto.unmatched ? `<p>${e(t.totoUnmatched)}: ${overview.toto.unmatched}</p>` : ''}${freshness(overview.toto.last_fetched_at)}</section>` : ''}
     ${data.days.length ? `<div class="table-scroll" tabindex="0" role="region" aria-label="${e(t.coverageTitle)}"><table><thead><tr>${[t.date, t.collectionState, t.meetingHeading, t.racecard, t.calendarUpdated].map(x => `<th scope="col">${e(x)}</th>`).join('')}</tr></thead><tbody>${data.days.map(day => `<tr><td>${link('calendar', {from:day.date,to:day.date}, e(dateText(day.date)))}</td><td>${e(t[coverageState(day)])}${day.status === 'failed' ? `<small>${e(t.failed)}</small>` : day.status === 'pending' && day.fetched_at !== null ? `<small>${e(t.refreshPending)}</small>` : ''}</td><td class="numeric">${day.fetched_at === null ? t.unknown : e(day.meetings)}</td><td>${day.fetched_at === null ? t.unknown : e(t.fields(day.fields, day.races))}${day.missing_lists ? `<small>${e(t.missingLists(day.missing_lists))}</small>` : ''}</td><td>${e(timestamp(day.fetched_at))}</td></tr>`).join('')}</tbody></table></div>` : empty(t.noCoverage, t.noCoverageHint)}
     <div class="pagination">${data.offset ? link('coverage', {offset:Math.max(0,data.offset-data.limit)}, e(t.previous), 'button') : '<span></span>'}<span>${e(t.page(data.total ? data.offset+1 : 0, Math.min(data.offset+data.limit,data.total),data.total))}</span>${data.offset+data.limit<data.total ? link('coverage',{offset:data.offset+data.limit},e(t.next),'button') : '<span></span>'}</div>`;
+}
+
+const metricFormat = {
+  count: new Intl.NumberFormat('fi-FI'),
+  rate: new Intl.NumberFormat('fi-FI',{style:'percent',maximumFractionDigits:1}),
+  money: new Intl.NumberFormat('fi-FI',{style:'currency',currency:'EUR',minimumFractionDigits:0})
+};
+
+async function analyticsView(params) {
+  const data = await api('analytics',{...params,today:localDay(new Date(overview.now))});
+  const {role,metric,period,leaders,coverage} = data;
+  const filters = {role,metric,period};
+  const navigate = (change,label,cls='') => link('analytics',{...filters,...change},label,cls);
+  const format = (key,value) => value == null ? t.unknown : (metricFormat[key] || metricFormat.count).format(value);
+  const roles = {horse:t.horses,trainer:t.trainers,driver:t.drivers};
+  const columns = Object.entries(t.analyticsMetrics);
+  const tiles = Object.entries(t.analyticsLeaders).filter(([key])=>leaders[key]).map(([key,label])=>{
+    const row = leaders[key];
+    return navigate({metric:key},`<span>${e(label)}</span><strong>${e(format(key,row[key]))}</strong>
+      <span>${e(row.name || row.id)}${row.ties>1 ? ` ${e(t.analyticsTies(row.ties-1))}` : ''}</span>`,'analytics-leader');
+  }).join('');
+  const returnTo = route('analytics',{...filters,offset:data.offset});
+  const rows = data.rows.map(row=>{
+    const profile = role === 'horse' ? link('horse',{id:row.id,returnTo},e(row.name || row.id),'horse-name')
+      : link('person',{id:row.id,role,returnTo},e(row.name || row.id),'horse-name');
+    return `<tr><td class="numeric">${e(row.rank)}</td><th scope="row">${profile}</th>${columns.map(([key])=>
+      `<td class="numeric${key===metric?' ranked':''}">${e(format(key,row[key]))}</td>`).join('')}</tr>`;
+  }).join('');
+  const range = coverage.races ? t.analyticsCoverage(format('count',coverage.races),dateText(coverage.first),dateText(coverage.last)) : '';
+  return `<section class="analytics-view">${header(t.analytics,range)}
+    <div class="analytics-filters"><nav class="segmented" aria-label="${e(t.analytics)}">${Object.entries(roles).map(([key,label])=>
+      navigate({role:key},e(label),key===role?'selected':'')).join('')}</nav>
+    <nav class="segmented" aria-label="${e(t.analyticsPeriod)}">${Object.entries(t.analyticsPeriods).map(([key,label])=>
+      navigate({period:key},e(label),key===period?'selected':'')).join('')}</nav></div>
+    ${tiles ? `<div class="analytics-leaders">${tiles}</div>` : ''}
+    ${role!=='horse' ? `<p class="analytics-caption">${e(t.analyticsPersonMoney)}</p>` : ''}
+    ${metric==='rate' ? `<p class="analytics-caption">${e(t.analyticsMinStarts(data.rate_min_starts))}</p>` : ''}
+    <div class="table-scroll" tabindex="0" role="region" aria-label="${e(roles[role])}"><table class="leaderboard"><thead><tr>
+    <th scope="col">${e(t.analyticsRank)}</th><th scope="col">${e(t[role])}</th>
+    ${columns.map(([key,label])=>`<th scope="col" class="numeric"${key===metric?' aria-sort="descending"':''}>${navigate({metric:key},e(label)+(key===metric?' ↓':''))}</th>`).join('')}</tr></thead>
+    <tbody>${rows || `<tr><td colspan="7">${e(t.analyticsEmpty)}</td></tr>`}</tbody></table></div>
+    ${peoplePagination('analytics',filters,data,t.analyticsPages)}</section>`;
 }
 
 function meetingHeader(m) {
@@ -274,7 +318,7 @@ function raceDetail(data, calendarContext = {}) {
 function originBack(returnTo) {
   if (!returnTo) return '';
   const back = horseReturnRoute(returnTo);
-  const labels = {predictions:t.predictionResults,people:t.backPeople,horses:t.backHorses,horse:t.backHorse,person:t.backPerson,party:t.backParty,saved:t.backSaved,calendar:t.backCalendar,race:t.backRace,tracks:t.backTracks,track:t.backTrack};
+  const labels = {analytics:t.backAnalytics,predictions:t.predictionResults,people:t.backPeople,horses:t.backHorses,horse:t.backHorse,person:t.backPerson,party:t.backParty,saved:t.backSaved,calendar:t.backCalendar,race:t.backRace,tracks:t.backTracks,track:t.backTrack};
   return link(back.name,back.params,`${icon('back')}${e(labels[back.name])}`,'back-link');
 }
 
@@ -665,7 +709,7 @@ async function render(focus = false) {
     const freshOverview = await api('overview');
     if (turn !== generation) return;
     overview = freshOverview;
-    const views = { predictions: predictionResultsView, calendar: calendarView, meeting: meetingView, tracks: tracksView, track: trackView, horses: horsesView, horse: horseView, saved: savedView, coverage: coverageView, people: peopleView, person: personView, party: partyView };
+    const views = { analytics: analyticsView, predictions: predictionResultsView, calendar: calendarView, meeting: meetingView, tracks: tracksView, track: trackView, horses: horsesView, horse: horseView, saved: savedView, coverage: coverageView, people: peopleView, person: personView, party: partyView };
     if (!views[name]) throw Object.assign(new Error('Unknown page'), { status: 404 });
     const content = await views[name](params);
     if (turn !== generation) return;

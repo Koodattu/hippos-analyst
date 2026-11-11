@@ -7,7 +7,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from urllib.parse import parse_qs, urlsplit
 
-from . import api, toto, browse, tracks, photos, prediction_store, prediction_results, race_results
+from . import analytics, api, toto, browse, tracks, photos, prediction_store, prediction_results, race_results
 from .person_names import PersonNames
 
 WEB = Path(__file__).with_name("web")
@@ -369,6 +369,9 @@ def required(params, key):
 
 def endpoint(archive, path, params):
     flat = {key: value[0] for key, value in params.items()}
+    if path == '/api/analytics':
+        required(params, 'today')
+        return analytics.leaderboard(archive, flat)
     if path == '/api/predictions/results':
         return prediction_results.evaluate(archive.db, api.iso_date(required(params,'from')),
             api.iso_date(required(params,'to')), flat.get('mode','backtest'),int(flat.get('offset','0')))

@@ -1824,6 +1824,29 @@ tr.expanded { background: #e8f0e1; }
 .preview-content { width: var(--preview-width); max-width: 100%; position: sticky; left: 16px; }
 
 /* Venue profiles share the archive's typography and local-only navigation. */
+.analytics-view { max-width:1440px; margin-inline:auto; }
+.analytics-view .page-heading { margin-bottom:12px; }
+.analytics-filters { display:flex; flex-wrap:wrap; align-items:center; justify-content:space-between; gap:8px; }
+.analytics-leaders { display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:8px; margin:12px 0; }
+.analytics-leader { display:grid; gap:2px; padding:10px 14px; background:white; border:1px solid var(--border); border-radius:8px; color:var(--green); }
+.analytics-leader:is(:hover,:focus-visible) { background:#f4f7ef; border-color:var(--accent); }
+.analytics-leader span { font-size:13px; overflow-wrap:anywhere; }
+.analytics-leader span:first-child,.analytics-caption { font-size:12px; color:var(--muted); }
+.analytics-leader strong { font-size:clamp(18px,2vw,26px); font-variant-numeric:tabular-nums; }
+.analytics-caption { margin:8px 0; }
+.leaderboard .numeric { text-align:right; white-space:nowrap; }
+.leaderboard th,.leaderboard td { padding:8px 12px; }
+.leaderboard tbody th { color:inherit; background:transparent; font-size:inherit; text-transform:none; letter-spacing:normal; border-bottom:1px solid var(--border); }
+.leaderboard .ranked,.leaderboard [aria-sort] { color:var(--green); background:#eef3e9; font-weight:650; }
+.leaderboard thead a { display:block; text-decoration:underline; text-decoration-color:#b0bcae; text-underline-offset:3px; }
+@media(max-width:650px) {
+  .analytics-leaders { gap:4px; }
+  .analytics-leader { padding:8px; }
+  .analytics-leader span { font-size:11px; }
+  .analytics-view .table-scroll table { min-width:540px; }
+  .leaderboard td,.leaderboard th { padding:8px; }
+}
+
 .tracks-workspace { display:grid; grid-template-columns:minmax(340px,0.82fr) minmax(0,1.18fr); gap:16px; align-items:start; }
 .track-results { min-width:0; }
 .track-directory { display:grid; grid-template-columns:repeat(auto-fill,minmax(min(100%,310px),1fr)); gap:10px; align-items:start; }

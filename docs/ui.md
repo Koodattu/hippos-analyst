@@ -557,3 +557,24 @@ or at 390px width. This spacing follow-up changes CSS only.
 Verified track selection, date submission and heading-range updates in the browser
 at 1280×720, plus the expanded layout at 390×844 without horizontal overflow.
 All 39 frontend tests, module syntax and diff whitespace checks passed.
+## Tilastot
+
+Open **Tilastot** to compare horses, trainers and drivers. The three summary
+cards select the starts, wins or prize ranking. The table also ranks top-three
+finishes and win percentage. Names open the corresponding archive profiles.
+Period, role, metric and page are carried in the URL for return navigation.
+
+The local `/api/analytics` endpoint counts starters in published TOTO and
+PAIKALLIS fields through the selected Helsinki date, including monté. It checks
+current calendar and race-list membership, completed race status and result
+evidence in the current field. Scratches, cancelled meetings, pony races,
+qualifiers and training runs are excluded. Unplaced and disqualified starters
+count as starts. Each joint first earns a win. Trainers receive one start per
+horse trained in the race. Prize totals use recorded runner prizes and accrue
+to the horse and its listed trainer and driver. These figures describe the
+collected results and can change after result corrections or historical backfill.
+
+Period choices cover the full archive, the current calendar year and the last
+30 calendar days including today. Win percentage is wins divided by starts.
+Ranking by this percentage requires ten starts during the selected period.
+Equal metric values share a rank.
