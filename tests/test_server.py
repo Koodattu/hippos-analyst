@@ -57,6 +57,39 @@ class ArchiveTests(unittest.TestCase):
                 endpoint(Archive(self.db), '/api/saved', {'ids': [ids], 'from': [DAY]})
         self.assertEqual(Archive(self.db).saved([], DAY), {'horses': [], 'missing': []})
 
+    def test_followed_activity_uses_each_role_and_splits_today_by_observed_race_results(self):
+        runner = {**self.runner, 'driverId':'12', 'trainerId':'34'}
+        self.save('runners', [runner, {**runner, 'horseId':'99', 'programNumber':'8', 'placing':'1'}])
+        self.save('runners', [{**runner, 'absent':True}], number='2')
+        self.db.execute('INSERT INTO horse_profiles VALUES(?,?,?)', (HORSE,'{}',100))
+        params = {'horse':[HORSE,'missing'], 'driver':['12','34'], 'trainer':['34'], 'today':[DAY]}
+        for role in ('owner','breeder'):
+            self.db.execute('INSERT INTO horse_parties VALUES(?,?,?,?)', (HORSE,role,'Test','a'*64))
+            params[role] = ['a'*64]
+        def read():
+            return {(g['role'],g['id']):g for g in endpoint(Archive(self.db), '/api/followed', params)}
+        groups = read()
+        for key in [('horse',HORSE),('owner','a'*64),('breeder','a'*64)]:
+            self.assertEqual([s['race_number'] for s in groups[key]['recent']], ['1'])
+            self.assertTrue(groups[key]['upcoming'][0]['data']['absent'])
+        self.assertEqual(len(groups['driver','12']['recent']), 2)
+        self.assertEqual(len(groups['trainer','34']['recent']), 2)
+        self.assertEqual(groups['driver','34']['recent'], [])
+        self.assertNotIn('name', groups['horse','missing'])
+        self.save('races', self.races[1:])
+        self.assertEqual(read()['driver','12']['recent'], [])
+
+    def test_followed_recent_limit_is_per_profile_and_upcoming_is_earliest_first(self):
+        races = [{**self.races[0], 'startNumber':str(n), 'plannedTime':f'{10+n}:00'} for n in range(1,10)]
+        self.save('races', races)
+        for n in range(1,10):
+            self.save('runners', [{**self.runner,'placing':'1' if n <= 7 else '0'}], number=str(n))
+        group, = endpoint(Archive(self.db), '/api/followed', {'horse':[HORSE], 'today':[DAY]})
+        self.assertEqual([s['race_number'] for s in group['recent']], ['7','6','5','4','3'])
+        self.assertEqual([s['race_number'] for s in group['upcoming']], ['8','9'])
+        with self.assertRaises(ValueError):
+            endpoint(Archive(self.db), '/api/followed', {'driver':[str(n) for n in range(101)],'today':[DAY]})
+
     def test_people_search_identity_and_latest_names(self):
         runners = [{**self.runner, 'programNumber': str(n), 'horseId': str(n),
                     'driverId': str(n), 'driverName': 'Ääni %' if n < 3 else f'Ohjastaja {n:02}',

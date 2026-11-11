@@ -468,12 +468,36 @@ overflow. At 390×844 the normal mobile flow still has no horizontal document
 overflow. This follow-up changes CSS only.
 
 Scrollbar polish uses rounded sage-green thumbs, transparent tracks and a stronger
-hover color. Chromium/WebKit scrollbars use a 10px track with an inset thumb;
+hover color. The desktop calendar has an 8px left inset and an 8px column gap.
+Its race-day scrollbar uses a lighter sage thumb and darkens on hover.
+Chromium/WebKit scrollbars use a 10px track (8px in the race-day sidebar) with an inset thumb;
 other engines use native thin, colored scrollbars. Header navigation uses lighter
 thumbs against its dark background. Forced-colors mode keeps system styling.
 Verified desktop thumb dragging scrolls only the intended column, viewport-edge
 alignment is retained, and mobile horizontal scrollbars introduce no document
 overflow. No scrolling logic or dependencies changed.
+
+### Navigation and Seurannassa
+
+The header groups the calendar, horse directory, people directory, tracks and
+Seurannassa in the main navigation. The header stays at the top while the page
+or either desktop calendar panel scrolls. Predictions and archive coverage sit at the
+right. On small screens the five main links occupy their own row.
+
+Seurannassa shows upcoming entries and the five most recent archived starts for
+each followed profile. The two lists sit side by side on wide screens and stack
+on phones. Five upcoming entries are visible immediately, with further entries
+available on the same page. Dates, start times, tracks and race links accompany
+the horse or driver, with placing, kilometre time and prize when available.
+Scratches and cancellations carry explicit labels. A published result in a race
+moves its same-day entries into recent starts. Owner and breeder lists use the
+horses linked in the latest collected profiles, including their older starts.
+These links establish the current archived relationship only.
+
+Driver, trainer, owner and breeder profiles have a Seuraa button.
+The list stores the profile name, role and source ID in this browser. Each name
+links to that role's profile, where Lopeta seuranta removes the entry. Removal
+is also available directly in Seurannassa.
 
 ### Compact race-day sidebar — 10 November 2026
 

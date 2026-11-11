@@ -4,8 +4,8 @@ These photographs are licensed separately from the project software licence.
 Sixteen photographs were downloaded from Wikimedia Commons on 25 October 2026
 as thumbnails up to 960 pixels wide.
 Files are resized versions of the originals (Mikkeli was already smaller).
-The directory crops images visually to a uniform frame; profiles show the full image.
-The UI displays creator, year, source, licence, and the resize/crop notice.
+Directory thumbnails crop to fit the card. Opening a card shows the full photo,
+creator, year, source, licence and available modification details.
 These are historical photographs, not current track-condition images.
 
 | Local file | Track | Original and creator | Licence |

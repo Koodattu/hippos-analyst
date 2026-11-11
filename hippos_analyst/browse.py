@@ -39,6 +39,77 @@ def options(params):
     return offset, query, today
 
 
+def followed_activity(archive, params, today):
+    """One snapshot for all followed profiles, including horses linked by current party records."""
+    groups = {}
+    for role in ('horse', 'driver', 'trainer', 'owner', 'breeder'):
+        for identity in params.get(role, []):
+            if not identity or len(identity) > 200:
+                raise ValueError('Invalid followed profile')
+            groups[role, identity] = dict(role=role, id=identity, upcoming=[], recent=[])
+    horses = {identity for role, identity in groups if role == 'horse'}
+    if len(horses) > 100 or len(groups) - len(horses) > 100:
+        raise ValueError('Too many followed profiles')
+    if not groups:
+        return []
+    names = archive.person_names()
+    db = archive.db
+    for horse in db.execute('SELECT id,name FROM horses WHERE id IN (SELECT value FROM json_each(?))',
+                            (json.dumps(list(horses)),)):
+        groups['horse', horse['id']]['name'] = horse['name']
+    parties = {}
+    for role in ('owner', 'breeder'):
+        keys = [identity for kind, identity in groups if kind == role]
+        for row in db.execute('SELECT horse_id,party_key,label FROM horse_parties WHERE role=? '
+                              'AND party_key IN (SELECT value FROM json_each(?))', (role,json.dumps(keys))):
+            key = (role, row['party_key'])
+            groups[key]['name'] = row['label']
+            parties.setdefault(row['horse_id'], []).append(key)
+
+    source, args = visible(archive)
+    filters = ['v.horse_id IN (SELECT value FROM json_each(?))']
+    args.append(json.dumps(list(horses.union(parties))))
+    for role in ('driver', 'trainer'):
+        ids = [identity for kind, identity in groups if kind == role]
+        if ids:
+            filters.append(f"CAST(json_extract(v.data,'$.{role}Id') AS TEXT) IN (SELECT value FROM json_each(?))")
+            args.append(json.dumps(ids))
+    query = source + """SELECT v.*, m.city, json_extract(m.data,'$.formattedTrackName') AS venue,
+        json_extract(m.data,'$.canceled') AS canceled, json_extract(r.data,'$.plannedTime') AS time
+        FROM visible v JOIN meetings m USING(date,track)
+        JOIN races r ON r.date=v.date AND r.track=v.track AND r.number=v.race_number
+        WHERE """ + ' OR '.join(filters) + """
+        ORDER BY v.date DESC,time DESC,v.track DESC,CAST(v.race_number AS INTEGER) DESC,
+                 CAST(v.program_number AS INTEGER) DESC"""
+    settled_today = {tuple(row) for row in db.execute(
+        """SELECT DISTINCT track,race_number FROM entries WHERE date=?
+           AND result_known(absent,placing,json_extract(data,'$.disqualifiedCode'))""", (today,))}
+    for row in db.execute(query, args):
+        entry = json.loads(row['data'])
+        keys = [('horse', row['horse_id']), ('driver', str(entry.get('driverId'))),
+                ('trainer', str(entry.get('trainerId'))), *parties.get(row['horse_id'], [])]
+        upcoming = (row['date'] >= today and not row['result_known'] and
+                    (row['date'] != today or (row['track'], row['race_number']) not in settled_today))
+        buckets = [groups[key]['upcoming' if upcoming else 'recent'] for key in keys if key in groups
+                   and (upcoming or len(groups[key]['recent']) < 5)]
+        if not buckets:
+            continue
+        entry = names.entry(entry)
+        start = {k: row[k] for k in ('date','track','race_number','time','horse_id','program_number','canceled')}
+        start['venue'] = row['venue'] or row['city'] or row['track']
+        start['data'] = {k: entry[k] for k in ('horseName','driverName','trainerName','distance','placing',
+            'absent','disqualifiedCode','shortKilometerTime','kilometerTime','price') if k in entry}
+        for bucket in buckets:
+            bucket.append(start)
+    for group in groups.values():
+        group['upcoming'].reverse()
+        if group['role'] in ('driver', 'trainer'):
+            full_name = names.resolve(group['id'], None)
+            if full_name:
+                group['name'] = full_name
+    return list(groups.values())
+
+
 def order_by(params, columns, default):
     key = params.get('sort', '')
     direction = params.get('dir') or 'asc'

@@ -43,6 +43,22 @@ class PersonNameTests(unittest.TestCase):
         snapshot = json.loads(self.db.execute('SELECT body FROM snapshots ORDER BY id DESC LIMIT 1').fetchone()[0])
         self.assertEqual(snapshot[0]['driverName'], 'A Ala-Rantala')
 
+    def test_watchlist_uses_resolved_names_for_headers_recent_and_upcoming_entries(self):
+        entry = {**self.runner, 'driverId':'12', 'driverName':'A Ala-Rantala',
+                 'trainerId':'12', 'trainerName':'A. Ala-Rantala'}
+        self.save('runners', [entry])
+        self.save('runners', [{**entry, 'placing':'1'}], number='2')
+        self.db.execute('INSERT INTO horse_profiles VALUES(?,?,?)', (HORSE, json.dumps({
+            'trainerId':'12','trainerName':'Antti Ala-Rantala'}), 120))
+        groups = browse.followed_activity(Archive(self.db), {'driver':['12'],'trainer':['12'],'horse':[HORSE]}, DAY)
+        for group in groups:
+            if group['role'] != 'horse':
+                self.assertEqual(group['name'], 'Antti Ala-Rantala')
+            for period in ('recent','upcoming'):
+                entry = group[period][0]['data']
+                self.assertEqual(entry['driverName'], 'Antti Ala-Rantala')
+                self.assertEqual(entry['trainerName'], 'Antti Ala-Rantala')
+
     def test_explicit_source_names_survive_import_and_resolve_without_trainer_match(self):
         raw = {**self.runner, 'driverId': '295190086041368698', 'driverName': 'T Kylliäinen',
                'driverFirstName': 'Tommi', 'driverLastName': 'Kylliäinen', 'ownerCity': 'Not retained'}

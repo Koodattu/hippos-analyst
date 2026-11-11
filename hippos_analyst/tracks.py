@@ -88,6 +88,8 @@ def directory(archive, params):
         rows.append(item)
     from .browse import name_key
     rows.sort(key=lambda item: (name_key(item['city']), name_key(item['name']), item['id']))
+    if params.get('all') == '1':
+        return {'rows': rows, 'total': len(rows), 'offset': 0, 'limit': len(rows)}
     offset = min(offset, max(0, (len(rows)-1)//30*30))
     return {'rows': rows[offset:offset+30], 'total': len(rows), 'offset': offset, 'limit': 30}
 

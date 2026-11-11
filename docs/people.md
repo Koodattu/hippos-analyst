@@ -145,8 +145,9 @@ initials and multi-letter abbreviations). Conflicting candidates, incompatible
 names and missing IDs remain unchanged. Removed races/meetings supply no evidence.
 The candidate cache is invalidated by successful collection observations.
 
+Trainer names on collected horse profiles also contribute evidence for the same person ID.
 Resolved names are used in directories, role profiles, racecards, histories,
-previews and sorting before pagination. Directories search both the resolved
+previews, watchlist headings and starts, and sorting before pagination. Directories search both the resolved
 name and the latest source label. Responses retain `source_name` on role records
 and `driverSourceName` / `trainerSourceName` on entries whose display name changed;
 stored entry names and snapshots are untouched. Owner/breeder name groups and

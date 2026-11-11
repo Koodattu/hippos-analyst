@@ -1,6 +1,7 @@
 """Conservative display names for Hippos's shared person IDs."""
 
 import json
+from itertools import chain
 
 from . import api
 
@@ -46,6 +47,12 @@ def compatible(short, full):
 
 
 class PersonNames:
+    @classmethod
+    def from_archive(cls, db):
+        profiles = (json.loads(row[0]) for row in db.execute(
+            "SELECT data FROM horse_profiles WHERE json_extract(data,'$.trainerId') IS NOT NULL"))
+        return cls(chain(visible_entries(db), profiles))
+
     def __init__(self, entries):
         candidates = {}
         for entry in entries:
@@ -63,7 +70,7 @@ class PersonNames:
 
     def resolve(self, identity, original):
         candidate = self.names.get(str(identity)) if identity is not None else None
-        if candidate and (not original or compatible(original, candidate)):
+        if candidate and (not original or original.casefold() == candidate.casefold() or compatible(original, candidate)):
             return candidate
         return original
 

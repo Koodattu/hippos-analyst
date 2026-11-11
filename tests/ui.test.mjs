@@ -1,4 +1,4 @@
-import { loadSaved, toggleSaved } from '../hippos_analyst/web/saved.mjs';
+import { loadSaved, toggleSaved, loadPeople, togglePerson } from '../hippos_analyst/web/saved.mjs';
 import { personReference, personReturnRoute, returnContext, sameView } from '../hippos_analyst/web/model.mjs';
 import { showRaceDistance, podiumPlace } from '../hippos_analyst/web/model.mjs';
 import test from 'node:test';
@@ -261,6 +261,21 @@ test('saved horse IDs persist, deduplicate, reject corrupt data and preserve sta
   assert.deepEqual(loadSaved(storage).ids, ['123']);
   value = JSON.stringify(Array.from({length:100}, (_, i) => String(i)));
   assert.throws(() => toggleSaved(storage, '101'), /limit/);
+});
+
+test('following people preserves legacy horses and distinguishes roles sharing an ID or name', () => {
+  const records = new Map([['hippos.saved-horses.v1', '["42"]']]);
+  const storage = {getItem: key => records.get(key), setItem: (key, value) => records.set(key, value)};
+  const driver = {id:'42', role:'driver', name:'A. Test'};
+  const trainer = {...driver, role:'trainer'};
+  const owner = {id:'a'.repeat(64), role:'owner', name:'Test Stable'};
+  const breeder = {...owner, role:'breeder'};
+  for (const profile of [driver, trainer, owner, breeder]) togglePerson(storage, profile);
+  togglePerson(storage, {...driver, name:'Updated name'});
+  assert.deepEqual(loadPeople(storage).items, [trainer, owner, breeder]);
+  assert.deepEqual(loadSaved(storage).ids, ['42']);
+  assert.throws(() => togglePerson(storage, {...driver, role:'unknown'}));
+  assert.deepEqual(loadPeople(storage).items, [trainer, owner, breeder]);
 });
 
 

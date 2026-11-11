@@ -7,10 +7,12 @@ pages and paged upcoming/historical meetings. Race pages link back through
 **Radan tiedot**. Period and page survive navigation through racecards.
 
 The directory pairs a Finland outline with the track cards. Circles use the
-stored coordinates, with city names centered just above their dots.
-Both circle and label open the profile. Pagination
-applies to both sides; the map shows only the current page. Old search URLs display
-the full directory, so a hidden filter cannot omit venues. Missing or out-of-region
+stored coordinates. City names sit beside their dots where space permits.
+Displaced names have connectors that highlight on hover or keyboard focus.
+Both circle and label open the profile. All track cards and mapped locations
+appear on one page, including when opening an old search or pagination link. The
+directory omits regional groupings with the source city `Paikallisravit`.
+Missing or out-of-region
 coordinates leave the card available without inventing a map position. The map
 stays beside the cards on larger screens and stacks above them on phones.
 
@@ -56,10 +58,11 @@ assert that today's races have not finished. Cancelled meetings remain labelled.
 ## API
 
 - `GET /api/tracks?today=YYYY-MM-DD&q=...&offset=0`
+- `GET /api/tracks?today=YYYY-MM-DD&all=1` returns the whole directory in one read.
 - `GET /api/track?id=hippos-H&today=YYYY-MM-DD&period=history&offset=0`
 
 Both endpoints read local data only. Search and period filtering precede paging;
-pages contain at most 30 records. Only the selected meeting page expands race
+paged responses contain at most 30 records. Only the selected meeting page expands race
 lists. Missing venues return 404; invalid dates, periods and offsets return 400.
 The browser supplies the Europe/Helsinki calendar date.
 
@@ -71,8 +74,9 @@ offline backfill. No dependency installation or network collection is needed.
 All seventeen track photos are bundled locally. Sixteen are from Commons, with
 creator, year, original page, licence and resize/crop notice. Ylivieska uses the
 photo published by Suomen Hippos, with publisher/source credit; no open licence
-is asserted for that photo. All cards share equal row heights and a fixed-height
-image area, including a same-size fallback for future tracks without photos. See
+is asserted for that photo. The directory shows venues with photos first, with
+the city, code, address and next known race day where available. Venues without
+photos have text cards. Each card opens the profile with full photo credits. See
 [image attribution](../hippos_analyst/web/images/README.md). External websites and
 maps open only when clicked. Hippos directory photographs and logos were not copied.
 

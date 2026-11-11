@@ -1,8 +1,8 @@
-import { loadSaved, toggleSaved } from './saved.mjs';
+import { loadSaved, toggleSaved, loadPeople, togglePerson } from './saved.mjs';
 import { trackMap } from './track-map.mjs';
 import { photoFigure, handlePhotoError } from './photos.mjs';
 import { fi as t } from './locales/fi.mjs';
-import { escapeHtml as e, localDay, addDays, route, parseRoute, dateRange, orderEntries, coverageState, kilometerTime, splitStarts, isWinner, hasResult, resultText, calendarSelection, calendarParams, calendarPage, raceOrder, horseReturnRoute, personReturnRoute, personReference, returnContext, sameView, runnerPrediction, runnerMarket, equipmentCodes, nextSort, calendarRaceRoute, showRaceDistance, podiumPlace } from './model.mjs';
+import { escapeHtml as e, localDay, addDays, route, parseRoute, dateRange, orderEntries, coverageState, kilometerTime, isWinner, hasResult, resultText, calendarSelection, calendarParams, calendarPage, raceOrder, horseReturnRoute, personReturnRoute, personReference, returnContext, sameView, runnerPrediction, runnerMarket, equipmentCodes, nextSort, calendarRaceRoute, showRaceDistance, podiumPlace } from './model.mjs';
 
 const app = document.querySelector('#app');
 app.addEventListener('error', handlePhotoError, true);
@@ -10,14 +10,17 @@ let overview, controller, generation = 0, currentRace, renderedRoute, searchTime
 const previewCache = new Map();
 const icon = name => {
   const paths = { calendar: '<rect x="3" y="5" width="18" height="16" rx="2"/><path d="M16 3v4M8 3v4M3 11h18m-13 4h2m4 0h2"/>',
-    horse: '<path d="m6 21 1-7-3-3 5-6 1-3 4 3 4 1 2 6-3 3-2-2-2 3 1 5M11 8h.01"/>',
+    trackMark: '<g transform="rotate(-28 12 12)"><rect x="1.5" y="5" width="21" height="14" rx="7"/><rect x="5" y="8.5" width="14" height="7" rx="3.5"/><path d="M14 5v3.5"/></g>',
+    horseshoe: '<path d="m5 3 4 1.5C7.5 7.6 6.5 10 6.5 12.7a5.5 5.5 0 0 0 11 0c0-2.7-1-5.1-2.5-8.2L19 3c1.7 3.6 2.5 6.8 2.5 9.7a9.5 9.5 0 0 1-19 0C2.5 9.8 3.3 6.6 5 3Z"/><path d="M4.6 11.5v.7m14.8-.7v.7M8 18.7l.6.3m7.4-.3-.6.3"/>',
+    people: '<circle cx="9" cy="8" r="3.4"/><path d="M2.5 20v-1.5a6.5 6.5 0 0 1 13 0V20M15.5 4.9a3.4 3.4 0 0 1 0 6.4M18 14a5.4 5.4 0 0 1 3.5 5.1V20"/>',
+    bookmark: '<path d="M6 4.5A1.5 1.5 0 0 1 7.5 3h9A1.5 1.5 0 0 1 18 4.5V21l-6-4-6 4Z"/>',
     arrow: '<path d="M5 12h14m-5-5 5 5-5 5"/>', back: '<path d="M19 12H5m5-5-5 5 5 5"/>',
     search: '<circle cx="10.5" cy="10.5" r="6.5"/><path d="m16 16 5 5"/>',
     pin: '<path d="M19 10c0 5-7 11-7 11S5 15 5 10a7 7 0 0 1 14 0Z"/><circle cx="12" cy="10" r="2"/>',
     clock: '<circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/>',
     external: '<path d="M14 3h7v7m0-7L10 14M10 3H4v17h17v-6"/>',
   };
-  return `<svg aria-hidden="true" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round">${paths[name] || paths.horse}</svg>`;
+  return `<svg aria-hidden="true" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round">${paths[name]}</svg>`;
 };
 const link = (name, params, label, cls = '') => `<a class="${cls}" ${cls.split(' ').includes('selected')?'aria-current="page"':''} href="${e(name === 'race' ? calendarRaceRoute(params) : route(name, params))}">${label}</a>`;
 const dateText = (day, options = {}) => new Intl.DateTimeFormat('fi-FI', { day: 'numeric', month: 'numeric', year: 'numeric', ...options, timeZone: 'Europe/Helsinki' }).format(new Date(`${day}T12:00:00Z`));
@@ -36,9 +39,22 @@ async function api(path, params = {}) {
 }
 
 function shell(name) {
-  const horses = ['horses', 'horse'].includes(name);
-  app.innerHTML = `<header class="app-header"><a href="#/calendar" class="brand"><span class="brand-mark">${icon('horse')}</span><span>${e(t.brand)}</span></a>
-    <nav aria-label="${e(t.workspace)}">${link('calendar', {}, `${icon('calendar')}<span>${e(t.calendar)}</span>`, ['calendar', 'meeting', 'race'].includes(name) ? 'nav-link active' : 'nav-link')}${link('predictions', {}, e(t.predictionNav), name === 'predictions' ? 'nav-link active' : 'nav-link')}${link('horses', {}, `${icon('horse')}<span>${e(t.horses)}</span>`, horses ? 'nav-link active' : 'nav-link')}${link('people', {}, e(t.people), ['people', 'person', 'party'].includes(name) ? 'nav-link active' : 'nav-link')}${link('tracks', {}, `${icon('pin')}<span>${e(t.tracks)}</span>`, ['tracks','track'].includes(name) ? 'nav-link active' : 'nav-link')}${link('saved', {}, e(t.saved), name === 'saved' ? 'nav-link active' : 'nav-link')}${link('coverage', {}, e(t.coverageTitle), name === 'coverage' ? 'nav-link active' : 'nav-link')}</nav>
+  const navItem = (target, label, symbol, pages = [target]) => {
+    const active = pages.includes(name);
+    return `<a href="${e(route(target, {}))}" class="nav-link${active ? ' active' : ''}"${active ? ' aria-current="page"' : ''}>${symbol ? icon(symbol) : ''}<span>${e(label)}</span></a>`;
+  };
+  app.innerHTML = `<header class="app-header"><a href="#/calendar" class="brand"><span class="brand-mark">${icon('trackMark')}</span><span>${e(t.brand)}</span></a>
+    <nav class="main-nav" aria-label="${e(t.primaryNav)}">
+      ${navItem('calendar', t.calendar, 'calendar', ['calendar','meeting','race'])}
+      ${navItem('horses', t.horses, 'horseshoe', ['horses','horse'])}
+      ${navItem('people', t.people, 'people', ['people','person','party'])}
+      ${navItem('tracks', t.tracks, 'pin', ['tracks','track'])}
+      ${navItem('saved', t.saved, 'bookmark')}
+    </nav>
+    <nav class="utility-nav" aria-label="${e(t.secondaryNav)}">
+      ${navItem('predictions', t.predictionNav)}
+      ${navItem('coverage', t.coverageTitle)}
+    </nav>
     </header>
     <main id="main" tabindex="-1"><div class="loading" role="status">${e(t.loading)}</div></main>`;
 }
@@ -125,21 +141,30 @@ function venueLink(meeting) {
 
 const externalLink = (url, label) => `<a href="${e(url)}" target="_blank" rel="noreferrer">${e(label)} ${icon('external')}</a>`;
 
-function trackPhoto(track, compact = false) {
+function trackPhoto(track) {
   const image = track.image;
-  if (!image) return compact ? `<figure class="track-photo track-photo-missing"><div class="track-photo-placeholder" aria-hidden="true">${icon('pin')}</div><figcaption>${e(t.noTrackPhoto)}</figcaption></figure>` : `<div class="track-no-photo">${icon('pin')}<p>${e(t.noTrackPhoto)}</p></div>`;
+  if (!image) return `<div class="track-no-photo">${icon('pin')}<p>${e(t.noTrackPhoto)}</p></div>`;
   const credit = image.author ? [image.author,image.year].filter(Boolean).join(' · ') : t.trackImageSource(image.publisher);
   const license = image.license_url ? ` · ${externalLink(image.license_url,image.license)}` : '';
-  const modification = compact ? t.trackImageCropped : image.rights_status === 'not-specified' ? t.trackImageUnchanged : t.imageResized;
-  return `<figure class="track-photo"><img src="${e(image.path)}" width="${image.width}" height="${image.height}" alt="${e(t.trackPhotoAlt(track.name))}" ${compact ? 'loading="lazy"' : ''}><figcaption>${externalLink(image.source, credit)}${license}<span>${e(modification)}</span></figcaption></figure>`;
+  const modification = image.rights_status === 'not-specified' ? t.trackImageUnchanged : t.imageResized;
+  return `<figure class="track-photo"><img src="${e(image.path)}" width="${image.width}" height="${image.height}" alt="${e(t.trackPhotoAlt(track.name))}"><figcaption>${externalLink(image.source, credit)}${license}<span>${e(modification)}</span></figcaption></figure>`;
 }
 
-async function tracksView(params) {
-  params = params.offset ? {offset:params.offset} : {};
-  const data = await api('tracks', {...params, today: localDay(new Date(overview.now))});
-  const returnTo = route('tracks', params);
-  return `<div class="tracks-workspace">${trackMap(data.rows, returnTo)}<section class="track-results" aria-label="${e(t.tracks)}">${data.rows.length ? `<div class="track-directory">${data.rows.map(track => `<article class="track-card">${trackPhoto(track, true)}<div class="track-card-body"><div class="eyebrow">${icon('pin')} ${e(track.city || t.unknown)} <span>· ${e(track.code)}</span></div><h2>${link('track', {id: track.id, returnTo}, e(track.name))}</h2><p>${e(track.address || t.noTrackAddress)}</p><div class="track-card-meta"><span>${e(t.trackMeetingCount(track.meeting_count))}</span>${track.next_date ? `<span>${e(t.nextTrackMeeting(dateText(track.next_date)))}</span>` : ''}</div></div></article>`).join('')}</div>` : empty(t.noMatches, t.noMatchesHint)}
-    ${peoplePagination('tracks', params, data, t.trackPages)}</section></div>${note(t.trackScope)}`;
+function trackCard(track, returnTo) {
+  const city = track.city && track.city !== track.name ? `<span>${e(track.city)}</span>` : '';
+  const photo = track.image ? `<img class="track-card-photo" src="${e(track.image.path)}" alt="" loading="lazy">` : '';
+  return link('track', {id:track.id, returnTo}, `${photo}<div class="track-card-body">
+    <div class="track-card-heading"><h2>${e(track.name)}</h2><b>${e(track.code)}</b></div>
+    ${city}${track.address ? `<small>${e(track.address)}</small>` : ''}
+    ${track.next_date ? `<small class="track-card-next">${icon('calendar')}${e(t.nextTrackMeeting(dateText(track.next_date)))}</small>` : ''}</div>`, 'track-card');
+}
+
+async function tracksView() {
+  const {rows} = await api('tracks', {all:1, today: localDay(new Date(overview.now))});
+  const venues = rows.filter(track => track.city !== 'Paikallisravit')
+    .sort((a,b)=>Number(Boolean(b.image))-Number(Boolean(a.image)));
+  const returnTo = route('tracks');
+  return `<div class="tracks-workspace">${trackMap(venues, returnTo)}<section class="track-results" aria-label="${e(t.tracks)}">${venues.length ? `<div class="track-directory">${venues.map(track => trackCard(track, returnTo)).join('')}</div>` : empty(t.noMatches, t.noMatchesHint)}</section></div>`;
 }
 
 async function trackView(params) {
@@ -321,7 +346,7 @@ function activityContent(data, params, horse = false) {
 async function personView(params) {
   const data = await api('activity',{...params,today:localDay(new Date(overview.now))});
   const p = data.person, s = data.summary;
-  return `${originBack(params.returnTo||route('people',{role:p.role}))}<div class="profile-identity">${photoFigure(data.photo,p.name)}${header(p.name||t.unnamedPerson(p.id),'',e(t[p.role]),freshness(p.fetched_at))}</div>
+  return `${originBack(params.returnTo||route('people',{role:p.role}))}<div class="profile-identity">${photoFigure(data.photo,p.name)}${header(p.name||t.unnamedPerson(p.id),'',e(t[p.role]),profileFollow(p))}</div><div id="save-feedback" role="status"></div>
     <div class="summary-strip"><span>${e(t.inArchive)}</span>${stats([[s.horses,t.horsesLabel],[s.entries,t.startsLabel],[s.results,t.resultsLabel],[s.wins,t.winsLabel]])}</div>
     ${activityContent(data,params)}${note(t.personScope+' '+t.relationshipScope)}<div class="detail-toolbar">${source()}</div>`;
 }
@@ -336,7 +361,7 @@ async function partyView(params) {
   const p = data.party;
   const back = personReturnRoute(params.returnTo,p.role);
   const labels = {people:t.backPeople,horse:t.backHorse,party:t.backParty,person:t.backPerson,race:t.backRace,calendar:t.backCalendar,saved:t.backSaved};
-  return `${link(back.name,back.params,`${icon('back')}${e(labels[back.name])}`,'back-link')}${header(p.name,'',e(t[p.role]),freshness(p.fetched_at))}${note(t.partyScope + ' ' + t.profileScope)}
+  return `${link(back.name,back.params,`${icon('back')}${e(labels[back.name])}`,'back-link')}${header(p.name,'',e(t[p.role]),profileFollow(p))}<div id="save-feedback" role="status"></div>${note(t.partyScope + ' ' + t.profileScope)}
     <div class="section-heading"><h2>${e(t.partyHorses)} · ${e(data.total)}</h2></div>
     ${relatedHorseTable(data.horses,route('party',{...params,offset:data.offset}),true)}${peoplePagination('party',params,data,t.peoplePages)}`;
 }
@@ -367,30 +392,67 @@ function offspringSection(data, params) {
   return `<section class="offspring-section"><div class="section-heading"><h2>${e(t.offspring)} · ${e(data.total)}</h2></div>${data.horses.length ? relatedHorseTable(data.horses,route('horse',{...params,offspring_offset:data.offset}),true) : `<p>${e(t.noOffspring)}</p>`}${data.total>data.limit ? `<nav class="pagination" aria-label="${e(t.offspringPages)}">${data.offset ? page(Math.max(0,data.offset-data.limit)) : '<span></span>'}<span>${e(t.page(data.offset+1,Math.min(data.offset+data.limit,data.total),data.total))}</span>${data.offset+data.limit<data.total ? page(data.offset+data.limit) : '<span></span>'}</nav>` : ''}</section>`;
 }
 
-function startsTable(starts, label, upcoming = false) {
-  return `<div class="table-scroll history-table${upcoming ? ' upcoming-table' : ''}" tabindex="0" role="region" aria-label="${e(label)}"><table><thead><tr>${[t.date, t.meeting, ...(upcoming ? [] : [t.driver, t.placing, t.kmTime, t.prize])].map(x => `<th scope="col">${e(x)}</th>`).join('')}</tr></thead><tbody>${starts.map(s => `<tr><td class="numeric">${e(dateText(s.date))}</td><td>${link('race', { date: s.date, track: s.track, number: s.race_number, returnTo: returnContext(location.hash) }, `${s.meeting_data.canceled ? `${e(t.canceled)} · ` : ''}${upcoming && s.absent ? `${e(t.absent)} · ` : ''}${e(s.meeting_data.formattedTrackName || s.city || s.track)}<small>${e(t.race(s.race_number))} · ${e(s.data.distance || t.unknown)} m${s.data.startType && s.data.startType !== 'TOTO' ? ` · ${e(t.types[s.data.startType] || s.data.startType)}` : ''}</small>`, 'horse-name')}${upcoming ? `<small>${e(t.driver)}: ${personLink(s.data, 'driver')}</small><small>${e(t.trainer)}: ${personLink(s.data, 'trainer')}</small>` : ''}</td>${upcoming ? '' : `<td>${personLink(s.data, 'driver')}<small>${e(t.trainer)}: ${personLink(s.data, 'trainer')}</small></td><td><span class="place ${isWinner(s.data) ? 'first' : ''}">${e(s.absent ? t.absent : resultText(s.data, 'placing', t.unknown))}</span></td><td class="numeric">${e(kilometerTime(s.data, t.unknown))}</td><td class="numeric">${hasResult(s.data) && s.prize != null && s.prize !== '' ? `${e(s.prize)} €` : t.unknown}</td>`}</tr>`).join('')}</tbody></table></div>`;
+function savedState(read) {
+  try { return read(localStorage); }
+  catch { return { error: true }; }
 }
 
-function savedState() {
-  try { return loadSaved(localStorage); }
-  catch { return { ids: [], error: true }; }
+function saveButton(id, person, following) {
+  if (following === undefined) {
+    following = person
+      ? savedState(loadPeople).items?.some(p => p.id === id && p.role === person.role)
+      : savedState(loadSaved).ids?.includes(id);
+  }
+  const attributes = person ? ` data-role="${e(person.role)}" data-name="${e(person.name)}"` : '';
+  return `<button type="button" class="button" data-save="${e(id)}"${attributes} aria-pressed="${!!following}">${e(following ? t.removeSaved : t.follow)}</button>`;
 }
 
-function saveButton(id) {
-  const state = savedState();
-  return `<button type="button" class="button" data-save="${e(id)}" aria-pressed="${state.ids.includes(id)}">${e(state.ids.includes(id) ? t.removeSaved : t.saveHorse)}</button>`;
+function profileFollow(p) {
+  return `<div class="profile-follow">${freshness(p.fetched_at)}${saveButton(String(p.id), {role:p.role, name:p.name || t.unnamedPerson(p.id)})}</div>`;
+}
+
+function followedStarts(rows, role, upcoming) {
+  const title = upcoming ? t.upcoming : t.latestStarts;
+  const heading = `<h3>${e(title)} <span>${rows.length}</span></h3>`;
+  if (!rows.length) return heading + `<p class="watch-empty">${e(upcoming ? t.noUpcoming : t.noHistory)}</p>`;
+  const horse = role === 'horse';
+  const columns = [t.date, t.meeting, horse ? t.driver : t.horse, upcoming ? t.distance : t.placing];
+  function table(starts) {
+    return `<div class="watch-table"><table aria-label="${e(title)}"><thead><tr>${columns.map(label => `<th scope="col">${e(label)}</th>`).join('')}</tr></thead><tbody>${starts.map(s => {
+      const r = s.data;
+      const race = link('race', {date:s.date,track:s.track,number:s.race_number,returnTo:route('saved')}, e(s.venue), 'horse-name');
+      const runner = horse ? e(r.driverName || t.unknown) : link('horse', {id:s.horse_id,returnTo:route('saved')}, e(r.horseName || s.horse_id), 'horse-name');
+      const status = s.canceled ? t.canceled : r.absent ? t.absent : '';
+      const value = status || (upcoming ? (r.distance ? r.distance + ' m' : t.unknown) : resultText(r,'placing',t.unknown));
+      const details = upcoming || status || !hasResult(r) ? '' : [kilometerTime(r,''), r.price != null && r.price !== '' ? r.price + ' €' : ''].filter(Boolean).join(' · ');
+      return `<tr><td><time datetime="${e(s.date)}">${e(dateText(s.date))}</time><small>${e(s.time || '')}</small></td><td>${race}<small>${e(t.race(s.race_number))} · ${e(t.number)} ${e(s.program_number)}</small></td><td>${runner}${!horse && role !== 'driver' && r.driverName ? `<small>${e(r.driverName)}</small>` : ''}</td><td><span class="${upcoming ? '' : 'place'}" data-podium="${upcoming || status ? '' : podiumPlace(r) ?? ''}">${e(value)}</span>${details ? `<small>${e(details)}</small>` : ''}</td></tr>`;
+    }).join('')}</tbody></table></div>`;
+  }
+  return heading + table(rows.slice(0,5)) + (rows.length > 5 ? `<details><summary>${e(t.moreStarts(rows.length-5))}</summary>${table(rows.slice(5))}</details>` : '');
 }
 
 async function savedView() {
-  const state = savedState();
-  const intro = header(t.saved) + note(t.savedHint);
-  if (state.error) return intro + empty(t.savedError, t.savedErrorHint);
-  if (!state.ids.length) return intro + empty(t.noSaved, t.noSavedHint, link('horses', {}, e(t.search), 'button primary'));
-  const data = await api('saved', { ids: state.ids.join(','), from: localDay(new Date(overview.now)) });
-  return intro + `<div id="save-feedback" role="status"></div><div class="saved-list">${data.horses.map(({ horse: h, starts }) => {
-    const { upcoming } = splitStarts(starts, localDay(new Date(overview.now)));
-    return `<section class="saved-horse"><div class="section-heading"><h2>${link('horse', { id: h.id, returnTo: route('saved') }, e(h.name))}</h2>${saveButton(h.id)}</div>${upcoming.length ? startsTable(upcoming, t.upcoming, true) : `<p>${e(t.noUpcoming)}</p>`}</section>`;
-  }).join('')}${data.missing.map(id => `<section class="saved-horse"><p>${e(t.savedMissing(id))}</p>${saveButton(id)}</section>`).join('')}</div>`;
+  const horses = savedState(loadSaved), people = savedState(loadPeople);
+  const intro = header(t.saved);
+  if (horses.error || people.error) return intro + empty(t.savedError, t.savedErrorHint);
+  if (!horses.ids.length && !people.items.length) {
+    return intro + empty(t.noSaved, t.noSavedHint, `<div class="follow-actions">${link('horses', {}, e(t.horses), 'button')}${link('people', {}, e(t.people), 'button')}</div>`);
+  }
+  const params = new URLSearchParams({today: localDay(new Date(overview.now))});
+  for (const id of horses.ids) params.append('horse', id);
+  for (const person of people.items) params.append(person.role, person.id);
+  const profiles = await api('followed', params);
+  const cards = profiles.map(profile => {
+    const {role, id, upcoming, recent} = profile;
+    const person = people.items.find(p => p.role === role && p.id === id);
+    const target = role === 'horse' ? 'horse' : ['driver','trainer'].includes(role) ? 'person' : 'party';
+    const name = profile.name || person?.name || id;
+    const profileLink = link(target,{id,...(person ? {role} : {}),returnTo:route('saved')},e(name));
+    const missing = role === 'horse' && !profile.name;
+    return `<article class="watch-card"><header><div><span>${e(t[role])}</span><h2>${missing ? e(t.savedMissing(id)) : profileLink}</h2></div>${saveButton(id,person,true)}</header>
+      ${missing ? '' : `<div class="watch-periods"><section>${followedStarts(upcoming,role,true)}</section><section>${followedStarts(recent,role,false)}</section></div>`}</article>`;
+  });
+  return intro + `<div id="save-feedback" role="status"></div><div class="watch-list">${cards.join('')}</div>`;
 }
 
 async function horseView(params) {
@@ -548,9 +610,12 @@ app.addEventListener('click',event=>{
   const save=event.target.closest('[data-save]');
   if(save) {
     try {
-      const ids=toggleSaved(localStorage,save.dataset.save);
+      const {save:id, role, name} = save.dataset;
+      const active = role
+        ? togglePerson(localStorage, {id, role, name}).some(p => p.role === role && p.id === id)
+        : toggleSaved(localStorage, id).includes(id);
       if(parseRoute(location.hash).name==='saved')render(true);
-      else {const active=ids.includes(save.dataset.save);save.setAttribute('aria-pressed',String(active));save.textContent=active?t.removeSaved:t.saveHorse;document.querySelector('#save-feedback').textContent=active?t.savedDone:t.savedRemoved;}
+      else {save.setAttribute('aria-pressed',String(active));save.textContent=active?t.removeSaved:t.follow;document.querySelector('#save-feedback').textContent=active?t.savedDone:t.savedRemoved;}
     } catch(error){document.querySelector('#save-feedback').textContent=error.message==='limit'?t.savedLimit:t.savedErrorHint;}
     return;
   }

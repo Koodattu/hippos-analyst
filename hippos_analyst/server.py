@@ -8,7 +8,7 @@ from pathlib import Path
 from urllib.parse import parse_qs, urlsplit
 
 from . import api, toto, browse, tracks, photos, prediction_store, prediction_results, race_results
-from .person_names import PersonNames, visible_entries
+from .person_names import PersonNames
 
 WEB = Path(__file__).with_name("web")
 ASSETS = {"/": ("index.html", "text/html"), "/app.mjs": ("app.mjs", "text/javascript"),
@@ -42,7 +42,7 @@ class Archive:
             if cached and cached[0] == token:
                 self._person_names = cached[1]
             else:
-                self._person_names = PersonNames(visible_entries(self.db))
+                self._person_names = PersonNames.from_archive(self.db)
                 if self.browse_cache is not None:
                     self.browse_cache['person_names'] = (token, self._person_names)
         return self._person_names
@@ -199,7 +199,7 @@ class Archive:
         parties = [dict(p) for p in self.db.execute('SELECT role,label,party_key AS id FROM horse_parties WHERE horse_id=? ORDER BY role', (horse_id,))]
         result = {"horse": dict(row), "starts": self.horse_starts(horse_id) if include_starts else [],
                   'photo': self.photo('horse', horse_id),
-                  'profile': {'data': json.loads(profile['data']), 'fetched_at': profile['fetched_at']} if profile else None,
+                  'profile': {'data': self.person_names().entry(json.loads(profile['data'])), 'fetched_at': profile['fetched_at']} if profile else None,
                   'profile_status': job['status'] if job else 'not_queued', 'parties': parties,
                   'pedigree': {}, 'offspring': {'horses': [], 'total': 0, 'offset': 0, 'limit': 30}}
         if not include_family:
@@ -426,6 +426,8 @@ def endpoint(archive, path, params):
     if path == "/api/saved":
         ids = params.get("ids", [""])[0]
         return archive.saved(ids.split(',') if ids else [], api.iso_date(required(params, "from")))
+    if path == '/api/followed':
+        return browse.followed_activity(archive, params, api.iso_date(required(params, 'today')))
     raise LookupError("Not found")
 
 

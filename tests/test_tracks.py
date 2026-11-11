@@ -42,6 +42,13 @@ class TrackTests(unittest.TestCase):
         self.assertEqual(self.get(q='Espoo')['rows'][0]['code'], 'H')
         self.assertEqual(self.get(q='not a track',offset=30)['offset'], 0)
 
+    def test_complete_directory_includes_every_page_and_unmapped_venues(self):
+        self.save([{'date':'2026-10-25','trackCode':f'X{i}'} for i in range(49)])
+        rows = self.get(all=1)['rows']
+        paged = [row for offset in (0,30,60) for row in self.get(offset=offset)['rows']]
+        self.assertEqual(rows, paged)
+        self.assertEqual(len({row['id'] for row in rows}), 66)
+
     def test_observations_keep_identity_location_and_conditions_separate(self):
         self.save([{'date':'2026-10-25','trackCode':'H','trackCity':'Helsinki',
                     'trackNumber':'1','latitude':'60.216332','longitude':'24.839744',

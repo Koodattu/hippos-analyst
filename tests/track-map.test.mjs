@@ -25,8 +25,31 @@ test('markers retain their geographic positions and track identities', () => {
     const position = projectTrack(tracks.find(track=>track.id===point.id).coordinates);
     assert.deepEqual({x:point.x,y:point.y},position);
     assert.equal(point.label,point.id);
-    assert.ok(point.labelY <= point.y-12);
+    assert.ok(Number.isFinite(point.labelX) && Number.isFinite(point.labelY));
   }
+});
+
+test('crowded labels stay visible and clear of other labels and markers', () => {
+  const tracks = Array.from({length:30},(_,i)=>venue(String(i),60+(i%3)*0.02,24+(i%5)*0.3));
+  const points = trackMarkers(tracks);
+  assert.equal(points.length,tracks.length);
+  points.forEach((p,i)=>{
+    const right = p.labelX + p.label.length*7.5;
+    assert.ok(Number.isFinite(right) && Number.isFinite(p.labelY));
+    for (const dot of points.filter(q=>Math.abs(q.y-p.labelY)<8)) {
+      assert.ok(dot.x<p.labelX-4 || dot.x>right+4);
+    }
+    for (const other of points.slice(i+1).filter(q=>Math.abs(q.labelY-p.labelY)<16)) {
+      assert.ok(right<other.labelX || other.labelX+other.label.length*7.5<p.labelX);
+    }
+  });
+  assert.deepEqual(trackMarkers([...tracks].reverse()).reverse(),points);
+});
+
+test('an isolated track is labelled beside its dot without a connector', () => {
+  const [p] = trackMarkers([venue('Lahti',61,25.6)]);
+  assert.equal(p.leader,false);
+  assert.ok(Math.hypot(p.labelX-p.x,p.labelY-p.y)<12);
 });
 
 test('map links preserve directory context and escape source labels; unavailable positions stay unplotted', () => {
