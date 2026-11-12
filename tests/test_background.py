@@ -132,15 +132,21 @@ class BackgroundTests(unittest.TestCase):
         self.assertEqual(self.run_worker(lambda _: self.fail('Error stop bypassed')), 'paused')
 
     def test_continuous_crosses_pass_boundaries_with_ten_second_spacing(self):
+        self.check_spacing_across_passes(10)
+
+    def test_continuous_crosses_pass_boundaries_with_two_second_spacing(self):
+        self.check_spacing_across_passes(2)
+
+    def check_spacing_across_passes(self, delay):
         calls = []
         def fetch(path):
             calls.append(self.clock())
             return api.Response(403) if len(calls) == 45 else response([])
-        result = background.run(self.path, continuous=True, delay=10, daily_budget=500,
+        result = background.run(self.path, continuous=True, delay=delay, daily_budget=500,
                                 clock=self.clock, sleep=self.clock.sleep, fetch=fetch, emit=lambda _: None)
         self.assertEqual(result, 'paused')
         self.assertEqual(len(calls), 45)
-        self.assertTrue(all(10 <= b-a < 11 for a,b in zip(calls,calls[1:])))
+        self.assertTrue(all(delay <= b-a < delay+1 for a,b in zip(calls,calls[1:])))
 
     def test_continuous_budget_wait_keeps_lock_and_obeys_manual_pause(self):
         with self.db:

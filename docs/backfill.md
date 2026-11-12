@@ -39,14 +39,13 @@ Report coverage as observed snapshots, never a verified copy of the provider.
 
 ## Active operating policy
 
-At the owner's explicit request, with the daily cap raised on 3 November, use one standalone continuous
-worker with **15-second request spacing and 2,000 combined attempts per UTC day**.
+As of 12 November, use one standalone continuous worker with **2-second Hippos request spacing and 5,000 combined attempts per UTC day**.
 These are local ceilings, not provider-approved limits. The ledger is never reset.
 The Windows hourly/sign-in task was stopped and removed, and its installer was
 removed from the repository. There is no OS schedule, service or Codex heartbeat.
 
 ```powershell
-python -m hippos_analyst.background --continuous --delay 15 --daily-budget 2000 --db data/hippos.sqlite3
+python -m hippos_analyst.background --continuous --delay 2 --daily-budget 5000 --db data/hippos.sqlite3
 ```
 
 The running windowless worker uses the same command with `pythonw.exe`. It holds

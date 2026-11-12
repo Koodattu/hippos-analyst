@@ -10,13 +10,13 @@ be started again manually after reboot, sign-out or termination.
 Foreground (Ctrl+C stops it):
 
 ```powershell
-python -m hippos_analyst.background --continuous --delay 10 --daily-budget 5000 --db data/hippos.sqlite3
+python -m hippos_analyst.background --continuous --delay 2 --daily-budget 5000 --db data/hippos.sqlite3
 ```
 
 Windowless, from this workspace:
 
 ```powershell
-$workerProcess = Start-Process -FilePath 'C:\Python311\pythonw.exe' -WindowStyle Hidden -PassThru -WorkingDirectory 'E:\Projektit\hippos-analyst' -ArgumentList '-m hippos_analyst.background --continuous --delay 10 --daily-budget 5000 --db "E:\Projektit\hippos-analyst\data\hippos.sqlite3"'
+$workerProcess = Start-Process -FilePath 'C:\Python311\pythonw.exe' -WindowStyle Hidden -PassThru -WorkingDirectory 'E:\Projektit\hippos-analyst' -ArgumentList '-m hippos_analyst.background --continuous --delay 2 --daily-budget 5000 --db "E:\Projektit\hippos-analyst\data\hippos.sqlite3"'
 $workerProcess.Id
 ```
 
@@ -26,7 +26,7 @@ through batch boundaries, idle sleeps, cooldowns and daily-budget waits.
 
 ## Limits and behaviour
 
-- **10 seconds** minimum between request starts and **5,000 attempts per UTC day**,
+- **2 seconds** minimum between Hippos request starts and **5,000 attempts per UTC day**,
   raised from 2,000 on 10 November at the owner's request.
   Attempts already made today, including failures, count toward this cap.
 - Repeated batches permit up to 20 refresh, ten profile and ten history requests.
