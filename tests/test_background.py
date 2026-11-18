@@ -74,25 +74,25 @@ class BackgroundTests(unittest.TestCase):
         self.assertEqual(self.db.execute('SELECT count(*) FROM requests').fetchone()[0], 2001)
 
     def test_budget_ceiling_and_toto_limits_remain_bounded(self):
-        for call in [lambda: background.run(self.path, daily_budget=5001),
-                     lambda: maintenance.run(self.db, '2026-11-03', daily_budget=5001),
-                     lambda: collector.run(self.db, daily_budget=5001),
+        for call in [lambda: background.run(self.path, daily_budget=10001),
+                     lambda: maintenance.run(self.db, '2026-11-03', daily_budget=10001),
+                     lambda: collector.run(self.db, daily_budget=10001),
                      lambda: collector.run(self.db, provider='toto', delay=60,
                                            max_requests=1, daily_budget=2000)]:
             with self.assertRaises(ValueError):
                 call()
         self.assertEqual(self.db.execute('SELECT count(*) FROM requests').fetchone()[0], 0)
 
-    def test_five_thousand_cap_preserves_all_prior_attempts(self):
+    def test_ten_thousand_cap_preserves_all_prior_attempts(self):
         with self.db:
             self.db.executemany("INSERT INTO requests(path,started_at) VALUES('test',?)",
-                                [(self.clock(),)]*4999)
+                                [(self.clock(),)]*9999)
         calls=[]
-        opts=dict(delay=10,daily_budget=5000,clock=self.clock,sleep=self.clock.sleep,emit=lambda _:None)
+        opts=dict(delay=1,daily_budget=10000,clock=self.clock,sleep=self.clock.sleep,emit=lambda _:None)
         self.assertEqual(background.run(self.path,fetch=lambda path:(calls.append(path) or response([])),**opts),'budget')
         self.assertEqual(len(calls),1)
         self.assertEqual(background.run(self.path,fetch=lambda _:self.fail('Cap bypassed'),**opts),'budget')
-        self.assertEqual(self.db.execute('SELECT count(*) FROM requests').fetchone()[0],5000)
+        self.assertEqual(self.db.execute('SELECT count(*) FROM requests').fetchone()[0],10000)
 
     def test_refusal_and_schema_stop_future_invocations(self):
         for status, payload in [(403, None), (429, None), (302, None), (200, {})]:
@@ -136,6 +136,17 @@ class BackgroundTests(unittest.TestCase):
 
     def test_continuous_crosses_pass_boundaries_with_two_second_spacing(self):
         self.check_spacing_across_passes(2)
+
+    def test_continuous_crosses_pass_boundaries_with_one_second_spacing(self):
+        self.check_spacing_across_passes(1)
+
+    def test_subsecond_spacing_is_rejected(self):
+        for call in [lambda: background.run(self.path, delay=0.5),
+                     lambda: maintenance.run(self.db, '2026-11-03', delay=0.5),
+                     lambda: collector.run(self.db, delay=0.5)]:
+            with self.assertRaises(ValueError):
+                call()
+        self.assertEqual(self.db.execute('SELECT count(*) FROM requests').fetchone()[0], 0)
 
     def check_spacing_across_passes(self, delay):
         calls = []
@@ -182,7 +193,8 @@ class BackgroundTests(unittest.TestCase):
 
     def test_invalid_limits_do_not_pause_or_schedule(self):
         with self.assertRaises(ValueError):
-            background.run(self.path, continuous=True, delay=1)
+            background.run(self.path, continuous=True, delay=0.5,
+                           fetch=lambda _: self.fail('Invalid limits reached fetch'))
         self.assertIsNone(self.db.execute('SELECT paused_reason FROM control').fetchone()[0])
         self.assertEqual(self.db.execute('SELECT count(*) FROM jobs').fetchone()[0], 0)
 

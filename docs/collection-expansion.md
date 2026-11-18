@@ -5,7 +5,7 @@ declining recurring checks of old races and completed profiles.
 
 ## Active policy
 
-- **2-second minimum Hippos spacing (12 November), 5,000 combined attempts per UTC day**, one shared
+- **1-second minimum Hippos spacing (17 November), 10,000 combined attempts per UTC day**, one shared
   lock and persistent ledger. Existing attempts count. This local cap is not a
   provider-granted allowance; refusals, rate limits, redirects, schema errors and
   failed jobs still stop collection.

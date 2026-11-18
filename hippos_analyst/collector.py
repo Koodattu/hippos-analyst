@@ -10,7 +10,7 @@ from pathlib import Path
 
 from . import api, store, toto
 
-MIN_HIPPOS_DELAY = 2
+MIN_HIPPOS_DELAY = 1
 
 
 @contextmanager
@@ -72,8 +72,8 @@ def run(db, *, max_requests=25, delay=15, daily_budget=500,
     if provider == 'toto' and (delay < toto.MIN_DELAY or daily_budget > 200 or max_requests > 20):
         raise ValueError('Toto requires at least 60-second spacing, at most 20 requests/run and 200 combined requests/day')
     fetch = fetch or (toto.fetch if provider == 'toto' else api.fetch)
-    if not 1 <= max_requests <= 500 or not 1 <= daily_budget <= 5000 or not MIN_HIPPOS_DELAY <= delay <= 3600:
-        raise ValueError(f"Use 1–500 requests/run, a 1–5000 daily budget and a {MIN_HIPPOS_DELAY}–3600 second delay")
+    if not 1 <= max_requests <= 500 or not 1 <= daily_budget <= 10000 or not MIN_HIPPOS_DELAY <= delay <= 3600:
+        raise ValueError(f"Use 1–500 requests/run, a 1–10000 daily budget and a {MIN_HIPPOS_DELAY}–3600 second delay")
     completed = 0
     for _ in range(max_requests):
         control = db.execute("SELECT * FROM control WHERE id=1").fetchone()
