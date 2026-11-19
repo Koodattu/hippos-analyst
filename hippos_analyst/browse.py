@@ -4,6 +4,7 @@ import json
 import re
 
 from . import api
+from .directory_index import LatestName
 
 
 def numeric(value):
@@ -18,16 +19,11 @@ def prepare(archive):
 
 
 def visible(archive):
-    keys = [[m['date'], m['track'], str(r['startNumber'])]
-            for m in archive.meeting_rows()
-            for r in (archive.head(api.races_path(m['date'], m['track'])) or ([], None))[0]]
-    return """WITH visible AS (
+    return f"""WITH visible AS (
         SELECT e.*, result_known(e.absent,e.placing,json_extract(e.data,'$.disqualifiedCode')) AS result_known,
             result_win(e.absent,e.placing,json_extract(e.data,'$.disqualifiedCode')) AS result_win,
             result_place(e.absent,e.placing,json_extract(e.data,'$.disqualifiedCode')) AS result_place
-        FROM json_each(?) v JOIN entries e
-        ON e.date=json_extract(v.value,'$[0]') AND e.track=json_extract(v.value,'$[1]')
-        AND e.race_number=json_extract(v.value,'$[2]')) """, [json.dumps(keys)]
+        FROM entries e WHERE {archive.entry_filter()}) """
 
 
 def options(params):
@@ -66,7 +62,7 @@ def followed_activity(archive, params, today):
             groups[key]['name'] = row['label']
             parties.setdefault(row['horse_id'], []).append(key)
 
-    source, args = visible(archive)
+    source, args = visible(archive), []
     filters = ['v.horse_id IN (SELECT value FROM json_each(?))']
     args.append(json.dumps(list(horses.union(parties))))
     for role in ('driver', 'trainer'):
@@ -130,23 +126,11 @@ def page(db, source, args, ordering, offset, limit=30, total=None):
     return {'rows': [dict(row) for row in rows], 'total': total, 'offset': offset, 'limit': limit}
 
 
-class LatestName:
-    def __init__(self):
-        self.key = None
-        self.name = None
-
-    def step(self, name, fetched, day, track, race, number):
-        key = (fetched, day)
-        tie = (track, race, number)
-        if self.key is None or key > self.key or key == self.key and tie < self.tie:
-            self.key, self.tie, self.name = key, tie, name
-
-    def finalize(self):
-        return self.name
+FINNISH_ORDER = str.maketrans({'å':'{a','ä':'{b','ö':'{c'})
 
 
 def name_key(value):
-    return (value or '').casefold().translate(str.maketrans({'å':'{a','ä':'{b','ö':'{c'}))
+    return (value or '').casefold().translate(FINNISH_ORDER)
 
 
 def directory_records(archive, kind, today):
@@ -157,33 +141,24 @@ def directory_records(archive, kind, today):
     cached = archive.browse_cache.get(kind) if archive.browse_cache is not None else None
     if cached and cached[0] == token:
         return cached[1]
-    membership = archive.entry_filter()
-    known = "result_known(absent,placing,json_extract(data,'$.disqualifiedCode'))"
-    dates = f"""max(CASE WHEN date<? OR {known} THEN date END) AS last_date,
-                min(CASE WHEN date>=? AND NOT {known} THEN date END) AS next_date"""
-    # Group in index order so SQLite never sorts the archive's full runner JSON.
+    # Most archived subjects have only past starts. Inspect unsettled dates only
+    # for subjects whose field extends to or beyond the requested day.
+    dates = """CASE WHEN a.last_entry < :today THEN a.last_entry ELSE
+        nullif(max(coalesce(a.last_result,''),coalesce((SELECT max(value) FROM json_each(a.open_dates)
+            WHERE value < :today),'')),'') END AS last_date,
+        CASE WHEN a.last_entry >= :today THEN (SELECT min(value) FROM json_each(a.open_dates)
+            WHERE value >= :today) END AS next_date"""
     if kind == 'horses':
-        rows = archive.db.execute(f"""WITH activity AS (SELECT horse_id,count(*) AS entries,{dates}
-            FROM entries INDEXED BY entries_horse WHERE {membership} GROUP BY horse_id)
-            SELECT h.*,coalesce(a.entries,0) AS entries,a.last_date,a.next_date,
-                json_extract(p.data,'$.gender') AS gender,
-                json_extract(p.data,'$.birthDate') AS birth_date,
-                CAST(substr(?,1,4) AS INTEGER)-CAST(substr(json_extract(p.data,'$.birthDate'),1,4) AS INTEGER) AS age
-            FROM horses h LEFT JOIN activity a ON a.horse_id=h.id
-            LEFT JOIN horse_profiles p ON p.horse_id=h.id""", (today,today,today))
+        rows = archive.db.execute(f"""SELECT h.*,coalesce(a.entries,0) AS entries,{dates},
+                json_extract(p.data,'$.gender') AS gender,json_extract(p.data,'$.birthDate') AS birth_date,
+                CAST(substr(:today,1,4) AS INTEGER)-CAST(substr(json_extract(p.data,'$.birthDate'),1,4) AS INTEGER) AS age
+            FROM horses h LEFT JOIN directory_activity a ON a.role='horse' AND a.id=h.id
+            LEFT JOIN horse_profiles p ON p.horse_id=h.id""", {'today':today})
         records = [dict(row) for row in rows]
     else:
-        archive.db.create_aggregate('latest_name',6,LatestName)
-        records = []
-        for role in ('driver','trainer'):
-            person_id = f"CAST(json_extract(data,'$.{role}Id') AS TEXT)"
-            rows = archive.db.execute(f"""SELECT {person_id} AS id,'{role}' AS role,
-                latest_name(trim(coalesce(json_extract(data,'$.{role}Name'),'')),
-                    fetched_at,date,track,race_number,program_number) AS name,
-                count(DISTINCT horse_id) AS horses,count(*) AS entries,{dates},max(fetched_at) AS fetched_at
-                FROM entries INDEXED BY entries_{role}_names
-                WHERE {membership} AND {person_id} NOT IN ('','0') GROUP BY {person_id}""", (today,today))
-            records.extend(dict(row) for row in rows)
+        rows = archive.db.execute(f"""SELECT a.id,a.role,a.name,a.horses,a.entries,{dates},a.fetched_at
+            FROM directory_activity a WHERE a.role IN ('driver','trainer')""", {'today':today})
+        records = [dict(row) for row in rows]
         records.extend(dict(row) for row in archive.db.execute("""SELECT party_key AS id,role,label AS name,
             count(*) AS horses,NULL AS entries,NULL AS last_date,NULL AS next_date,max(p.fetched_at) AS fetched_at
             FROM horse_parties r JOIN horse_profiles p ON p.horse_id=r.horse_id GROUP BY role,party_key,label"""))
@@ -249,7 +224,7 @@ def activity(archive, params, limit=30):
     prepare(archive)
     offset, query, today = options(params)
     archive.db.create_function('person_name', 2, archive.person_names().resolve, deterministic=True)
-    source, args = visible(archive)
+    source, args = visible(archive), []
     role, identity = params.get('role', 'horse'), params.get('id', '')
     if not identity or role not in ('horse', 'driver', 'trainer'):
         raise ValueError('Invalid activity identity')

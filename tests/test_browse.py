@@ -85,6 +85,47 @@ class BrowseTests(unittest.TestCase):
         self.assertEqual(legacy['summary']['results'],1)
         self.assertEqual(legacy['summary']['upcoming'],0)
 
+    def test_directory_updates_match_backfill_for_replays_corrections_and_removals(self):
+        from hippos_analyst import api, directory_index, store
+        one = dict(self.runner, driverId='7', driverName='A Korpi', trainerId='7', trainerName='Antti Korpi')
+        two = dict(one, horseId='22', programNumber='2', placing='1')
+        def snapshot():
+            return [tuple(row) for row in self.db.execute(
+                'SELECT * FROM directory_activity ORDER BY role,id')]
+        def check():
+            incremental = snapshot()
+            self.db.execute('DELETE FROM directory_activity')
+            directory_index.refresh(self.db)
+            self.assertEqual(snapshot(), incremental)
+        self.save('runners', [one, two])
+        self.save('runners', [one], number='10')
+        tomorrow = '2026-10-24'
+        self.save('calendar', [dict(self.meeting, date=tomorrow)], day=tomorrow)
+        self.save('races', [dict(self.races[0], date=tomorrow)], day=tomorrow)
+        self.save('runners', [dict(one, date=tomorrow)], day=tomorrow)
+        dates = self.read('directory/people', role='driver', today=tomorrow)['rows'][0]
+        self.assertEqual((dates['horses'], dates['last_date'], dates['next_date']), (2, DAY, tomorrow))
+        check()
+        self.save('runners', [one, two])
+        check()
+        self.save('runners', [dict(two, driverId='9', trainerName='Corrected Name')])
+        check()
+        self.save('calendar', [])
+        self.assertEqual(self.read('directory/people', role='driver')['rows'][0]['entries'], 1)
+        self.save('calendar', [self.meeting])
+        check()
+        self.save('runners', [], number='10')
+        check()
+        self.db.execute('SAVEPOINT observation')
+        before = snapshot()
+        path = api.runners_path(DAY, 'H', '1')
+        job = self.db.execute('SELECT * FROM jobs WHERE path=?', (path,)).fetchone()
+        request = self.db.execute('INSERT INTO requests(path,started_at) VALUES(?,?)', (path,999)).lastrowid
+        store.save_response(self.db, job, [], request, 999)
+        self.assertNotEqual(snapshot(), before)
+        self.db.execute('ROLLBACK TO observation')
+        self.assertEqual(snapshot(), before)
+
     def test_activity_global_numeric_sort_and_stale_page(self):
         self.field()
         # One trainer is associated with all runners; the driver IDs remain distinct.

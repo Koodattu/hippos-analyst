@@ -5,6 +5,7 @@ import json
 import sqlite3
 from pathlib import Path
 
+from . import directory_index
 from .api import races_path, runners_path, profile_path, horse_id
 
 
@@ -116,6 +117,15 @@ def connect(path):
         CREATE TABLE IF NOT EXISTS maintenance_state (
             name TEXT PRIMARY KEY, value TEXT NOT NULL
         );
+        CREATE TABLE IF NOT EXISTS directory_hidden_races (
+            date TEXT NOT NULL, track TEXT NOT NULL, number TEXT NOT NULL,
+            PRIMARY KEY(date,track,number)
+        ) WITHOUT ROWID;
+        CREATE TABLE IF NOT EXISTS directory_activity (
+            role TEXT NOT NULL, id TEXT NOT NULL, name TEXT, entries INTEGER NOT NULL, horses INTEGER,
+            fetched_at REAL NOT NULL, last_entry TEXT NOT NULL, last_result TEXT, open_dates TEXT NOT NULL,
+            PRIMARY KEY(role,id)
+        ) WITHOUT ROWID;
         CREATE TABLE IF NOT EXISTS tracks (
             id TEXT PRIMARY KEY, hippos_code TEXT NOT NULL UNIQUE,
             data TEXT NOT NULL, fetched_at REAL
@@ -134,6 +144,7 @@ def connect(path):
     """)
     from . import tracks
     tracks.initialize(db)
+    directory_index.initialize(db)
     return db
 
 
@@ -174,6 +185,7 @@ def save_response(db, job, records, request_id, now):
     digest = hashlib.sha256((body if version == 1 else str(version)+':'+body).encode("utf-8")).hexdigest()
     db.execute("INSERT OR IGNORE INTO snapshots(path,sha256,first_seen,body,parser_version) VALUES(?,?,?,?,?)",
                (job["path"], digest, now, body, version))
+    directory_index.catch_up(db)
     snapshot_id = db.execute("SELECT id FROM snapshots WHERE path=? AND sha256=?",
                              (job["path"], digest)).fetchone()[0]
     context = json.loads(job["context"])
@@ -181,6 +193,7 @@ def save_response(db, job, records, request_id, now):
         from . import toto
         toto.save_response(db, job, records, request_id, now)
     day = context.get("date")
+    changed_fields = []
     def discover(path, kind, child_context):
         if context.get('refresh_after'):
             return enqueue_refresh(db, path, kind, child_context, job['priority'], now, context['refresh_after'])
@@ -208,6 +221,8 @@ def save_response(db, job, records, request_id, now):
                      {"date": day, "track": track, "number": number})
     if job["kind"] == "runners":
         # A response is the entire current field. Historical versions remain in snapshots.
+        key = (day, context["track"], context["number"])
+        changed_fields = directory_index.field_ids(db, *key)
         db.execute("DELETE FROM entries WHERE date=? AND track=? AND race_number=?",
                    (day, context["track"], context["number"]))
         for record in records:
@@ -219,6 +234,14 @@ def save_response(db, job, records, request_id, now):
                 (day, context["track"], context["number"], record["programNumber"], record["horseId"],
                  record.get("placing"), record.get("kilometerTime"), record.get("price"),
                  record.get("absent"), encode(record), now))
+        previous = db.execute("""SELECT snapshot_id FROM requests WHERE path=? AND outcome='ok'
+                                 ORDER BY id DESC LIMIT 1""", (job['path'],)).fetchone()
+        new = not changed_fields
+        identical = previous is not None and previous[0] == snapshot_id
+        if (new or identical) and directory_index.merge_field(db, key, records, now, new=new):
+            changed_fields = []
+        else:
+            changed_fields.extend(directory_index.field_ids(db, *key))
     if job['kind'] == 'profile':
         record = records[0]
         db.execute("""INSERT INTO horses VALUES(?,?,?,?,?) ON CONFLICT(id) DO UPDATE SET
@@ -250,6 +273,11 @@ def save_response(db, job, records, request_id, now):
                     {'id':record['id'],'name':record['name'],'lastModified':photo.get('lastModified')},job['priority'])
     db.execute("UPDATE requests SET outcome='ok',snapshot_id=?,finished_at=? WHERE id=?",
                (snapshot_id, now, request_id))
+    if job['kind'] in ('calendar', 'races'):
+        changed_fields = directory_index.reconcile_day(db, day)
+    directory_index.refresh(db, changed_fields)
+    db.execute("UPDATE maintenance_state SET value=max(CAST(value AS INTEGER),?) WHERE name='directory_index_v1'",
+               (request_id,))
     db.execute("UPDATE jobs SET status='done',last_success=?,last_error=NULL,next_attempt=0 WHERE path=?",
                (now, job["path"]))
     db.execute("UPDATE control SET consecutive_failures=0 WHERE id=1")

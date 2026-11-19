@@ -15,6 +15,7 @@ from urllib.parse import parse_qs
 
 from . import analytics, api, toto, browse, tracks, photos, prediction_store, prediction_results, race_results
 from .person_names import PersonNames
+from . import directory_index
 
 WEB = Path(__file__).with_name("web")
 ASSETS = {"/": ("index.html", "text/html"), "/app.mjs": ("app.mjs", "text/javascript"),
@@ -28,20 +29,6 @@ for _photo in ('vermo', 'teivo', 'track-f', 'track-j', 'track-jo', 'track-k', 't
                'track-s', 'track-tk', 'track-to', 'track-y'):
     ASSETS[f'/images/{_photo}.jpg'] = (f'images/{_photo}.jpg', 'image/jpeg')
 
-# The latest successful calendar determines membership. A listed meeting may
-# still be waiting for its first race list.
-LISTED_MEETINGS = """
-    FROM (SELECT max(id) AS id FROM requests WHERE outcome='ok'
-          AND path GLOB '/race/search/*' GROUP BY path) latest
-    JOIN requests c ON c.id=latest.id JOIN snapshots calendar ON calendar.id=c.snapshot_id
-    CROSS JOIN json_each(calendar.body) item
-    JOIN meetings m ON m.date=json_extract(item.value,'$.date')
-        AND m.track=CAST(json_extract(item.value,'$.trackCode') AS TEXT)
-    LEFT JOIN snapshots list ON list.id=(SELECT snapshot_id FROM requests
-        WHERE outcome='ok' AND path='/race/'||m.date||'/'||m.track||'/races' ORDER BY id DESC LIMIT 1)
-"""
-
-
 class Archive:
     def __init__(self, db, browse_cache=None):
         self.db = db
@@ -54,16 +41,7 @@ class Archive:
     def entry_filter(self):
         """Exclude retained races removed from the latest source lists during index scans."""
         if self._entry_filter is None:
-            visible_keys = ("SELECT m.date,m.track,CAST(json_extract(r.value,'$.startNumber') AS TEXT) "
-                            + LISTED_MEETINGS + " CROSS JOIN json_each(list.body) r")
-            hidden_keys = "SELECT date,track,number FROM races EXCEPT " + visible_keys
-            hidden = self.db.execute(hidden_keys + " LIMIT 1").fetchone()
-            self._entry_filter = '1'
-            if hidden:
-                # Match removed fields through the race index. The name indexes
-                # can still supply rowids without reading every runner's JSON.
-                self._entry_filter = f"""rowid NOT IN (SELECT e.rowid FROM ({hidden_keys}) h
-                    CROSS JOIN entries e WHERE e.date=h.date AND e.track=h.track AND e.race_number=h.number)"""
+            self._entry_filter = directory_index.entry_filter(self.db)
         return self._entry_filter
 
     def photo(self, kind, entity_id):
@@ -142,14 +120,14 @@ class Archive:
     def overview(self):
         span = self.db.execute("SELECT min(json_extract(context,'$.date')),max(json_extract(context,'$.date')) FROM jobs WHERE kind='calendar' AND last_success IS NOT NULL").fetchone()
         meetings = self.db.execute("""
-            SELECT m.track,coalesce(nullif(json_extract(m.data,'$.formattedTrackName'),''),nullif(m.city,''),m.track),
-                   coalesce(json_array_length(list.body),0)""" + LISTED_MEETINGS + " ORDER BY m.date,m.start_time,m.track")
+            SELECT m.track,coalesce(nullif(json_extract(m.data,'$.formattedTrackName'),''),nullif(m.city,''),m.track)
+            """ + directory_index.listed_meetings() + " ORDER BY m.date,m.start_time,m.track")
         track_names = {}
-        meeting_count = race_count = 0
-        for track, name, races in meetings:
+        meeting_count = 0
+        for track, name in meetings:
             track_names[track] = name
             meeting_count += 1
-            race_count += races
+        race_count = self.db.execute("SELECT (SELECT count(*) FROM races)-(SELECT count(*) FROM directory_hidden_races)").fetchone()[0]
         return {"meeting_count": meeting_count, "race_count": race_count,
                 "horse_count": self.db.execute("SELECT count(*) FROM horses").fetchone()[0],
                 "first_date": span[0], "last_date": span[1], "tracks": track_names,
@@ -288,43 +266,20 @@ class Archive:
         horses = [dict(h) for h in self.db.execute('SELECT h.*,p.fetched_at AS relationship_fetched_at' + source + f' ORDER BY {ordering} LIMIT 30 OFFSET ?', (*args,offset))]
         return {'party':{**dict(row),'id':key,'role':role},'horses':horses,'total':total,'offset':offset,'limit':30}
 
-    def people_source(self, role):
+    def prepare_people(self, role):
         if role not in ('driver', 'trainer'):
             raise ValueError('Invalid role')
         self.db.create_function('person_name', 2, self.person_names().resolve, deterministic=True)
-        # Membership comes from latest successful lists, not retained stale rows.
-        # Join visible race keys against the existing entries primary-key index.
-        keys = [[m['date'], m['track'], str(r['startNumber'])]
-                for m in self.meeting_rows()
-                for r in (self.head(api.races_path(m['date'], m['track'])) or ([], None))[0]]
-        sql = f"""WITH source AS (
-            SELECT e.*, result_known(e.absent,e.placing,json_extract(e.data,'$.disqualifiedCode')) AS result_known,
-                result_win(e.absent,e.placing,json_extract(e.data,'$.disqualifiedCode')) AS result_win,
-                CAST(json_extract(e.data,'$.{role}Id') AS TEXT) AS person_id,
-                trim(coalesce(json_extract(e.data,'$.{role}Name'),'')) AS source_name,
-                person_name(CAST(json_extract(e.data,'$.{role}Id') AS TEXT),
-                    trim(coalesce(json_extract(e.data,'$.{role}Name'),''))) AS person_name
-            FROM json_each(?) v JOIN entries e
-              ON e.date=json_extract(v.value,'$[0]') AND e.track=json_extract(v.value,'$[1]')
-              AND e.race_number=json_extract(v.value,'$[2]')
-            WHERE person_id IS NOT NULL AND person_id NOT IN ('','0')) """
-        return sql, json.dumps(keys)
 
     def people(self, role, query='', offset=0):
         if not 0 <= offset <= 10_000_000 or len(query) > 200:
             raise ValueError('Invalid search')
-        source, keys = self.people_source(role)
+        self.prepare_people(role)
         self.db.create_function('casefold', 1, lambda s: s.casefold() if s else '', deterministic=True)
-        grouped = source + """, ranked AS (
-            SELECT *,row_number() OVER (PARTITION BY person_id ORDER BY fetched_at DESC,
-                date DESC,track,race_number,program_number) AS rank FROM source), people AS (
-            SELECT person_id AS id, max(CASE WHEN rank=1 THEN person_name END) AS name,
-                max(CASE WHEN rank=1 THEN source_name END) AS source_name,
-                count(*) AS entries,count(DISTINCT horse_id) AS horses,max(date) AS last_date,
-                max(fetched_at) AS fetched_at FROM ranked GROUP BY person_id)
-            """
+        grouped = """WITH people AS (SELECT id,person_name(id,name) AS name,name AS source_name,
+            entries,horses,last_entry AS last_date,fetched_at FROM directory_activity WHERE role=?) """
         where = ' FROM people WHERE (instr(casefold(name),?)>0 OR instr(casefold(source_name),?)>0)'
-        args = (keys, query.strip().casefold(), query.strip().casefold())
+        args = (role, query.strip().casefold(), query.strip().casefold())
         total = self.db.execute(grouped + 'SELECT count(*)' + where, args).fetchone()[0]
         offset = min(offset, max(0, (total - 1) // 30 * 30))
         rows = self.db.execute(grouped + 'SELECT *' + where + ' ORDER BY casefold(name),id LIMIT 30 OFFSET ?', (*args, offset))
@@ -333,12 +288,20 @@ class Archive:
     def person(self, role, person_id, today, period='', offset=0):
         if period not in ('', 'upcoming', 'history') or not 0 <= offset <= 10_000_000:
             raise ValueError('Invalid page')
-        source, keys = self.people_source(role)
-        source += """, person_entries AS (SELECT *,
+        self.prepare_people(role)
+        source = f"""WITH source AS (
+            SELECT e.*, result_known(e.absent,e.placing,json_extract(e.data,'$.disqualifiedCode')) AS result_known,
+                result_win(e.absent,e.placing,json_extract(e.data,'$.disqualifiedCode')) AS result_win,
+                CAST(json_extract(e.data,'$.{role}Id') AS TEXT) AS person_id,
+                trim(coalesce(json_extract(e.data,'$.{role}Name'),'')) AS source_name,
+                person_name(CAST(json_extract(e.data,'$.{role}Id') AS TEXT),
+                    trim(coalesce(json_extract(e.data,'$.{role}Name'),''))) AS person_name
+            FROM entries e WHERE {self.entry_filter()} AND person_id NOT IN ('','0')),
+            person_entries AS (SELECT *,
             result_known AS has_result,
             (date>=? AND NOT result_known) AS upcoming
             FROM source WHERE person_id=?) """
-        args = (keys, today, person_id)
+        args = (today, person_id)
         person = self.db.execute(source + """SELECT person_id AS id,person_name AS name,source_name,fetched_at
             FROM person_entries ORDER BY fetched_at DESC,date DESC,track,race_number,program_number LIMIT 1""", args).fetchone()
         if person is None:
