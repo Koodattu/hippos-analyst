@@ -11,6 +11,7 @@ from unittest.mock import patch
 from hippos_analyst import prediction_results as results, prediction_store as persistence
 from hippos_analyst import prediction_features as features, predictions, server
 from test_predictions import group
+import test_server
 
 
 def report():
@@ -78,6 +79,37 @@ class ScoringTests(unittest.TestCase):
 
 
 class EvaluationTests(unittest.TestCase):
+    def test_indexed_results_follow_field_corrections_and_calendar_membership(self):
+        fixture = test_server.ArchiveTests()
+        fixture.setUp()
+        self.addCleanup(fixture.tearDown)
+        day = test_server.DAY
+        fields = [group(day, str(n)) for n in (1,2)]
+        fixture.save('races', [g['race'] for g in fields])
+        for g in fields:
+            for runner in g['entries']:
+                runner['horseName'] = 'Horse ' + runner['horseId']
+            fixture.save('runners', g['entries'], number=g['key'][2])
+        output = persistence.connect(fixture.path)
+        self.addCleanup(output.close)
+        features.build_features(fields)
+        with output:
+            output.execute('INSERT INTO models VALUES(?,?,?,?)', ('v1',1,'unused',json.dumps(report())))
+            persistence.save(output,'v1',fields[0],[.7,.3],'backtest',1,100,report())
+        def read():
+            return results.evaluate(fixture.db,day,day)
+        self.assertEqual(read()['summary']['hits'], 1)
+        self.assertEqual(read()['excluded'], {'no_prediction': 1})
+        first, second = fields[0]['entries']
+        fixture.save('runners',[dict(first,placing='2'),dict(second,placing='1')])
+        self.assertEqual(read()['summary']['hits'], 0)
+        fixture.save('calendar', [dict(fixture.meeting,canceled=True)])
+        self.assertEqual((read()['total'],read()['excluded']), (0,{}))
+        fixture.save('calendar', [fixture.meeting])
+        fixture.save('races', [fields[0]['race']])
+        self.assertEqual(read()['excluded'], {})
+        self.assertEqual(read()['summary']['eligible'], 1)
+
     def test_deployed_model_populates_fresh_prediction_database(self):
         with tempfile.TemporaryDirectory() as temp:
             artifact = Path(temp)

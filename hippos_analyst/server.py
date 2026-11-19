@@ -77,45 +77,44 @@ class Archive:
         return self.visible_meeting(day, track) and head is not None and any(
             str(r["startNumber"]) == number for r in head[0])
 
-    def meeting_record(self, row):
+    def meeting_record(self, row, compact=False):
         result = dict(row)
         result['track_id'] = tracks.identity(row['track'])
         result["data"] = json.loads(result["data"])
-        races = self.race_list(row["date"], row["track"])
+        races = self.race_list(row["date"], row["track"], compact)
         result["races"] = races
         result["race_count"] = len(races)
         result["collected_races"] = sum(r["field_fetched_at"] is not None for r in races)
         result["races_fetched_at"] = (self.head(api.races_path(row["date"], row["track"])) or (None, None))[1]
         return result
 
-    def race_list(self, day, track):
-        head = self.head(api.races_path(day, track))
-        numbers = {str(r["startNumber"]) for r in head[0]} if head else set()
+    def race_list(self, day, track, compact=False):
+        columns = 'r.number' if compact else 'r.*'
         result = []
-        for row in self.db.execute("SELECT * FROM races WHERE date=? AND track=? ORDER BY CAST(number AS INTEGER),number", (day, track)):
-            if row["number"] not in numbers:
-                continue
+        for row in self.db.execute(f"""SELECT {columns},f.fetched_at AS field_fetched_at,f.entry_count,f.has_results
+                FROM races r LEFT JOIN report_fields f USING(date,track,number)
+                WHERE r.date=? AND r.track=? AND NOT EXISTS (SELECT 1 FROM directory_hidden_races h
+                    WHERE (h.date,h.track,h.number)=(r.date,r.track,r.number))
+                ORDER BY CAST(r.number AS INTEGER),r.number""", (day,track)):
             race = dict(row)
-            race["data"] = json.loads(race["data"])
-            field = self.head(api.runners_path(day, track, row["number"]))
-            race["field_fetched_at"] = field[1] if field else None
-            race["entry_count"] = len(field[0]) if field else None
-            # A date or opaque status code is not evidence of a published result.
-            race["has_results"] = bool(field and any(
-                race_results.has_result(r)
-                for r in field[0]))
+            if not compact:
+                race["data"] = json.loads(race["data"])
+            race["has_results"] = bool(race["has_results"])
             result.append(race)
         return result
 
     def meeting_rows(self, start='0001-01-01', end='9999-12-31', track=''):
-        query = 'SELECT * FROM meetings WHERE date BETWEEN ? AND ?'
+        query = 'SELECT m.* FROM meetings m WHERE m.date BETWEEN ? AND ?'
         params = [start, end]
         if track:
             query += ' AND track=?'
             params.append(track)
-        query += ' ORDER BY date,start_time,track'
-        return [row for row in self.db.execute(query, params)
-                if self.visible_meeting(row['date'], row['track'])]
+        query += """ AND EXISTS (SELECT 1 FROM json_each((SELECT s.body FROM requests q
+            JOIN snapshots s ON s.id=q.snapshot_id WHERE q.path='/race/search/'||m.date||'/'||m.date||'/'
+            AND q.outcome='ok' ORDER BY q.id DESC LIMIT 1)) item
+            WHERE CAST(json_extract(item.value,'$.trackCode') AS TEXT)=m.track)
+            ORDER BY m.date,m.start_time,m.track"""
+        return list(self.db.execute(query, params))
 
     def overview(self):
         span = self.db.execute("SELECT min(json_extract(context,'$.date')),max(json_extract(context,'$.date')) FROM jobs WHERE kind='calendar' AND last_success IS NOT NULL").fetchone()
@@ -138,7 +137,7 @@ class Archive:
                 "toto": toto.coverage(self.db),
                 "now": datetime.now(timezone.utc).isoformat()}
 
-    def calendar(self, start, end, track="", offset=0):
+    def calendar(self, start, end, track="", offset=0, compact=False):
         if start > end or not 0 <= offset <= 10_000_000:
             raise ValueError("Invalid date range")
         days = [dict(row) for row in self.db.execute("""SELECT json_extract(context,'$.date') AS date,
@@ -148,7 +147,7 @@ class Archive:
         limit = 30
         # Reconcile removed meetings before paging; expand fields only for this page.
         offset = min(offset, max(0, (len(rows) - 1) // limit * limit))
-        return {"meetings": [self.meeting_record(row) for row in rows[offset:offset + limit]],
+        return {"meetings": [self.meeting_record(row,compact) for row in rows[offset:offset + limit]],
                 "days": days, "total": len(rows), "offset": offset, "limit": limit}
 
     def coverage(self, offset=0):
@@ -397,7 +396,7 @@ def endpoint(archive, path, params):
         return archive.coverage(int(params.get('offset', ['0'])[0]))
     if path == "/api/calendar":
         return archive.calendar(api.iso_date(required(params, "from")), api.iso_date(required(params, "to")),
-                                params.get("track", [""])[0], int(params.get("offset", ["0"])[0]))
+                                params.get("track", [""])[0], int(params.get("offset", ["0"])[0]), flat.get('view')=='compact')
     if path in ("/api/meeting", "/api/race"):
         day, track = api.iso_date(required(params, "date")), required(params, "track")
         if path == "/api/meeting":

@@ -111,5 +111,5 @@ def detail(archive, params):
     return {'track': profile(row), 'meeting_count': len(meetings),
             'upcoming_count': sum(m['date'] >= today for m in meetings),
             'history_count': sum(m['date'] < today for m in meetings),
-            'rows': [archive.meeting_record(m) for m in selected[offset:offset+30]],
+            'rows': [archive.meeting_record(m,params.get('view')=='compact') for m in selected[offset:offset+30]],
             'period': period, 'total': total, 'offset': offset, 'limit': 30}

@@ -5,7 +5,7 @@ import json
 import sqlite3
 from pathlib import Path
 
-from . import directory_index
+from . import directory_index, report_index
 from .api import races_path, runners_path, profile_path, horse_id
 
 
@@ -79,11 +79,6 @@ def connect(path):
             FOREIGN KEY(date, track, race_number) REFERENCES races(date, track, number)
         );
         CREATE INDEX IF NOT EXISTS entries_horse ON entries(horse_id, date);
-        CREATE INDEX IF NOT EXISTS entries_driver_names ON entries(
-            CAST(json_extract(data,'$.driverId') AS TEXT),
-            nullif(json_extract(data,'$.driverFirstName'),''),nullif(json_extract(data,'$.driverLastName'),''));
-        CREATE INDEX IF NOT EXISTS entries_trainer_names ON entries(
-            CAST(json_extract(data,'$.trainerId') AS TEXT),nullif(json_extract(data,'$.trainerName'),''));
         CREATE TABLE IF NOT EXISTS toto_targets (
             date TEXT NOT NULL, track TEXT NOT NULL, number TEXT NOT NULL,
             card_id TEXT, race_id TEXT UNIQUE, scheduled_start REAL, race_status TEXT,
@@ -126,6 +121,16 @@ def connect(path):
             fetched_at REAL NOT NULL, last_entry TEXT NOT NULL, last_result TEXT, open_dates TEXT NOT NULL,
             PRIMARY KEY(role,id)
         ) WITHOUT ROWID;
+        CREATE TABLE IF NOT EXISTS report_fields (
+            date TEXT NOT NULL,track TEXT NOT NULL,number TEXT NOT NULL,fetched_at REAL NOT NULL,
+            entry_count INTEGER NOT NULL,has_results INTEGER NOT NULL,competitive INTEGER NOT NULL,
+            exclusion TEXT,PRIMARY KEY(date,track,number)
+        ) WITHOUT ROWID;
+        CREATE TABLE IF NOT EXISTS leaderboard_days (
+            date TEXT NOT NULL,role TEXT NOT NULL,id TEXT NOT NULL,name TEXT,starts INTEGER NOT NULL,
+            wins INTEGER NOT NULL,podiums INTEGER NOT NULL,money REAL,PRIMARY KEY(role,id,date)
+        ) WITHOUT ROWID;
+        CREATE INDEX IF NOT EXISTS leaderboard_date ON leaderboard_days(date);
         CREATE TABLE IF NOT EXISTS tracks (
             id TEXT PRIMARY KEY, hippos_code TEXT NOT NULL UNIQUE,
             data TEXT NOT NULL, fetched_at REAL
@@ -142,9 +147,24 @@ def connect(path):
         );
         PRAGMA user_version = 1;
     """)
+    # Keep the name evidence covered while allowing a bounded newest-start lookup.
+    # Replace each legacy index under the same name so older readers can keep using it.
+    with db:
+        db.execute("BEGIN IMMEDIATE")
+        for role, fields in [('driver',('driverFirstName','driverLastName')), ('trainer',('trainerName',))]:
+            name = f'entries_{role}_names'
+            columns = list(db.execute(f'PRAGMA index_info({name})'))
+            if len(columns)>1 and columns[1][2]=='date':
+                continue
+            db.execute(f'DROP INDEX IF EXISTS {name}')
+            evidence = ','.join(f"nullif(json_extract(data,'$.{field}'),'')" for field in fields)
+            db.execute(f"CREATE INDEX {name} ON entries(CAST(json_extract(data,'$.{role}Id') AS TEXT),date,{evidence})")
     from . import tracks
     tracks.initialize(db)
     directory_index.initialize(db)
+    with db:
+        db.execute('BEGIN IMMEDIATE')
+        report_index.catch_up(db)
     return db
 
 
@@ -186,6 +206,7 @@ def save_response(db, job, records, request_id, now):
     db.execute("INSERT OR IGNORE INTO snapshots(path,sha256,first_seen,body,parser_version) VALUES(?,?,?,?,?)",
                (job["path"], digest, now, body, version))
     directory_index.catch_up(db)
+    report_index.catch_up(db)
     snapshot_id = db.execute("SELECT id FROM snapshots WHERE path=? AND sha256=?",
                              (job["path"], digest)).fetchone()[0]
     context = json.loads(job["context"])
@@ -194,6 +215,11 @@ def save_response(db, job, records, request_id, now):
         toto.save_response(db, job, records, request_id, now)
     day = context.get("date")
     changed_fields = []
+    changed_report = False
+    if job['kind'] in ('calendar','races','runners'):
+        previous = db.execute("""SELECT snapshot_id FROM requests WHERE path=? AND outcome='ok'
+                                 ORDER BY id DESC LIMIT 1""", (job['path'],)).fetchone()
+        changed_report = not previous or previous[0] != snapshot_id
     def discover(path, kind, child_context):
         if context.get('refresh_after'):
             return enqueue_refresh(db, path, kind, child_context, job['priority'], now, context['refresh_after'])
@@ -234,11 +260,8 @@ def save_response(db, job, records, request_id, now):
                 (day, context["track"], context["number"], record["programNumber"], record["horseId"],
                  record.get("placing"), record.get("kilometerTime"), record.get("price"),
                  record.get("absent"), encode(record), now))
-        previous = db.execute("""SELECT snapshot_id FROM requests WHERE path=? AND outcome='ok'
-                                 ORDER BY id DESC LIMIT 1""", (job['path'],)).fetchone()
         new = not changed_fields
-        identical = previous is not None and previous[0] == snapshot_id
-        if (new or identical) and directory_index.merge_field(db, key, records, now, new=new):
+        if (new or not changed_report) and directory_index.merge_field(db, key, records, now, new=new):
             changed_fields = []
         else:
             changed_fields.extend(directory_index.field_ids(db, *key))
@@ -276,7 +299,11 @@ def save_response(db, job, records, request_id, now):
     if job['kind'] in ('calendar', 'races'):
         changed_fields = directory_index.reconcile_day(db, day)
     directory_index.refresh(db, changed_fields)
-    db.execute("UPDATE maintenance_state SET value=max(CAST(value AS INTEGER),?) WHERE name='directory_index_v1'",
+    if changed_report:
+        report_index.refresh_day(db, day)
+    elif job['kind'] == 'runners':
+        db.execute("UPDATE report_fields SET fetched_at=? WHERE date=? AND track=? AND number=?", (now,*key))
+    db.execute("UPDATE maintenance_state SET value=max(CAST(value AS INTEGER),?) WHERE name IN ('directory_index_v1','reports_v1')",
                (request_id,))
     db.execute("UPDATE jobs SET status='done',last_success=?,last_error=NULL,next_attempt=0 WHERE path=?",
                (now, job["path"]))

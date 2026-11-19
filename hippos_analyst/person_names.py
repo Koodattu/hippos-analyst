@@ -31,7 +31,7 @@ def compatible(short, full):
 class PersonNames:
     @classmethod
     def from_archive(cls, db, entry_filter):
-        # Each index groups identical evidence together. Only distinct names cross
+        # The indexes cover the name fields. Only distinct names cross
         # into Python, even when a driver has appeared in thousands of races.
         drivers = (dict(driverId=row[0], driverFirstName=row[1], driverLastName=row[2])
                    for row in db.execute(f"""SELECT DISTINCT CAST(json_extract(data,'$.driverId') AS TEXT),

@@ -34,7 +34,7 @@ const empty = (title, hint, action = '') => `<div class="empty">${icon('search')
 async function api(path, params = {}) {
   const query = new URLSearchParams(params);
   query.delete('returnTo');
-  const response = await fetch(`/api/${path}?${query}`, { signal: controller.signal });
+  const response = await fetch(`/api/${path}${query.size ? '?' + query : ''}`, { signal: controller.signal });
   if (!response.ok) throw Object.assign(new Error('API request failed'), { status: response.status });
   return response.json();
 }
@@ -80,7 +80,7 @@ function freshness(value) {
 async function calendarView(params) {
   const today = localDay(new Date(overview.now));
   const range = dateRange(params, overview, today);
-  const data = await api('calendar', { ...range, track: params.track || '', offset: params.offset || '0' });
+  const data = await api('calendar', { ...range, track: params.track || '', offset: params.offset || '0', view:'compact' });
   const pageLink = (offset, label) => link('calendar', calendarPage(params, range, offset), e(label), 'button calendar-page');
   const pages = data.total > data.limit ? `<nav class="pagination" aria-label="${e(t.meetingPages)}">${data.offset > 0 ? pageLink(Math.max(0, data.offset - data.limit), t.previous) : '<span></span>'}<span>${e(t.page(data.offset + 1, Math.min(data.offset + data.limit, data.total), data.total))}</span>${data.offset + data.limit < data.total ? pageLink(data.offset + data.limit, t.next) : '<span></span>'}</nav>` : '';
   const selection = calendarSelection(data.meetings, params, today);
@@ -212,7 +212,7 @@ async function tracksView() {
 }
 
 async function trackView(params) {
-  const data = await api('track', {...params, today: localDay(new Date(overview.now))});
+  const data = await api('track', {...params, today: localDay(new Date(overview.now)), view:'compact'});
   const track = data.track, coords = track.coordinates;
   const facts = [[t.trackLocation, track.city], [t.trackAddress, track.address], [t.trackCode, track.code],
     [t.trackCategory, t.trackCategories[track.category] || track.category]];
@@ -501,10 +501,12 @@ async function savedView() {
 
 async function horseView(params) {
   const family = params.section==='family';
-  const data = await api('horse',{...params,section:family?'family':'activity'});
+  const [data, activity] = await Promise.all([
+    api('horse',{...params,section:family?'family':'activity'}),
+    family ? null : api('activity',{...params,role:'horse',today:localDay(new Date(overview.now))}),
+  ]);
   const h = data.horse;
   const breed = data.profile?.data.breedFinName||t.breeds[h.breed]||h.breed||t.unknown;
-  const activity = family?null:await api('activity',{...params,role:'horse',today:localDay(new Date(overview.now))});
   return `${originBack(params.returnTo||route('horses'))}<div class="profile-identity">${photoFigure(data.photo,h.name)}${header(h.name,'',`${e(breed)} · ${e(h.country||t.unknown)}`,saveButton(h.id))}</div><div id="save-feedback" role="status"></div>
     <nav class="profile-tabs" aria-label="${e(t.fullHorse)}">${link('horse',{...params,section:'activity',sort:'',dir:''},e(t.activity),family?'':'selected')}${link('horse',{...params,section:'family',sort:'',dir:''},e(t.family),family?'selected':'')}</nav>
     ${family?`${horseBackground(data)}${offspringSection(data.offspring,params)}`:`<div class="summary-strip"><span>${e(t.inArchive)}</span>${stats([[activity.summary.entries,t.startsLabel],[activity.summary.results,t.resultsLabel],[activity.summary.wins,t.winsLabel]])}</div><div class="horse-activity-layout"><section>${activityContent(activity,params,true)}</section><aside class="horse-facts">${profileFacts(data)}</aside></div>`}

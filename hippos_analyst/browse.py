@@ -18,9 +18,9 @@ def prepare(archive):
     archive.db.create_collation('FINNISH', lambda a,b: (name_key(a)>name_key(b))-(name_key(a)<name_key(b)))
 
 
-def visible(archive):
+def visible(archive, *, rowids=False):
     return f"""WITH visible AS (
-        SELECT e.*, result_known(e.absent,e.placing,json_extract(e.data,'$.disqualifiedCode')) AS result_known,
+        SELECT e.*, {'e.rowid AS entry_id,' if rowids else ''} result_known(e.absent,e.placing,json_extract(e.data,'$.disqualifiedCode')) AS result_known,
             result_win(e.absent,e.placing,json_extract(e.data,'$.disqualifiedCode')) AS result_win,
             result_place(e.absent,e.placing,json_extract(e.data,'$.disqualifiedCode')) AS result_place
         FROM entries e WHERE {archive.entry_filter()}) """
@@ -62,7 +62,7 @@ def followed_activity(archive, params, today):
             groups[key]['name'] = row['label']
             parties.setdefault(row['horse_id'], []).append(key)
 
-    source, args = visible(archive), []
+    source, args = visible(archive,rowids=True), []
     filters = ['v.horse_id IN (SELECT value FROM json_each(?))']
     args.append(json.dumps(list(horses.union(parties))))
     for role in ('driver', 'trainer'):
@@ -70,17 +70,32 @@ def followed_activity(archive, params, today):
         if ids:
             filters.append(f"CAST(json_extract(v.data,'$.{role}Id') AS TEXT) IN (SELECT value FROM json_each(?))")
             args.append(json.dumps(ids))
+    # Keep only the latest five past starts for each followed subject. All future
+    # fields are still classified individually (including already settled races).
+    recent = set()
+    subjects = {'horse': horses.union(parties)}
+    for role in ('driver','trainer'):
+        subjects[role] = [identity for kind,identity in groups if kind == role]
+    for role, identities in subjects.items():
+        column = 'horse_id' if role == 'horse' else f"CAST(json_extract(e.data,'$.{role}Id') AS TEXT)"
+        for identity in identities:
+            recent.update(row[0] for row in db.execute(source + f"""SELECT e.entry_id FROM visible e
+                JOIN races r ON (r.date,r.track,r.number)=(e.date,e.track,e.race_number)
+                WHERE {column}=? AND e.date<?
+                ORDER BY e.date DESC,json_extract(r.data,'$.plannedTime') DESC,e.track DESC,
+                         CAST(e.race_number AS INTEGER) DESC,CAST(e.program_number AS INTEGER) DESC LIMIT 5""",
+                (identity,today)))
     query = source + """SELECT v.*, m.city, json_extract(m.data,'$.formattedTrackName') AS venue,
         json_extract(m.data,'$.canceled') AS canceled, json_extract(r.data,'$.plannedTime') AS time
         FROM visible v JOIN meetings m USING(date,track)
         JOIN races r ON r.date=v.date AND r.track=v.track AND r.number=v.race_number
-        WHERE """ + ' OR '.join(filters) + """
+        WHERE (v.date>=? AND (""" + ' OR '.join(filters) + """)) OR v.entry_id IN (SELECT value FROM json_each(?))
         ORDER BY v.date DESC,time DESC,v.track DESC,CAST(v.race_number AS INTEGER) DESC,
                  CAST(v.program_number AS INTEGER) DESC"""
     settled_today = {tuple(row) for row in db.execute(
         """SELECT DISTINCT track,race_number FROM entries WHERE date=?
            AND result_known(absent,placing,json_extract(data,'$.disqualifiedCode'))""", (today,))}
-    for row in db.execute(query, args):
+    for row in db.execute(query, [today,*args,json.dumps(sorted(recent))]):
         entry = json.loads(row['data'])
         keys = [('horse', row['horse_id']), ('driver', str(entry.get('driverId'))),
                 ('trainer', str(entry.get('trainerId'))), *parties.get(row['horse_id'], [])]

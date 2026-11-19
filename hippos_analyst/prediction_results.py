@@ -52,6 +52,35 @@ def score_field(group, prediction, report):
             'mode':body['mode'], 'created_at':body['created_at'], 'fit_cutoff':fitting_cutoff(report)}, None
 
 
+def matched_fields(db, saved, start, end, excluded):
+    # Older read-only archives may not yet have run the report backfill.
+    if not db.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name='report_fields'").fetchone():
+        for group in features.iter_groups(db, start, end):
+            reason = features.result_reason(group['race'],group['entries'])
+            if reason or group['key'] not in saved:
+                excluded[reason or 'no_prediction'] += 1
+            else:
+                yield group
+        return
+    for reason, count in db.execute("""SELECT exclusion,count(*) FROM report_fields
+            WHERE date BETWEEN ? AND ? GROUP BY exclusion""", (start,end)):
+        if reason != 'canceled_meeting':
+            excluded[reason or 'no_prediction'] = count
+    matches = db.execute("""SELECT r.date,r.track,r.number,r.data FROM json_each(?) k
+        JOIN report_fields f ON f.date=json_extract(k.value,'$[0]') AND f.track=json_extract(k.value,'$[1]')
+            AND f.number=json_extract(k.value,'$[2]')
+        JOIN races r USING(date,track,number) WHERE f.exclusion IS NULL""", (json.dumps(list(saved)),))
+    for day,track,number,data in matches:
+        key = (day,track,number)
+        race = json.loads(data)
+        entries = [json.loads(row[0]) for row in db.execute("""SELECT data FROM entries
+            WHERE date=? AND track=? AND race_number=? ORDER BY CAST(program_number AS INTEGER)""", key)]
+        excluded['no_prediction'] -= 1
+        yield {'key':key,'race':race,'entries':entries,'signature':features.signature(race,entries)}
+    if not excluded['no_prediction']:
+        excluded.pop('no_prediction',None)
+
+
 def evaluate(archive_db, start, end, mode='backtest', offset=0):
     if mode not in ('backtest','forecast') or not 0 <= offset <= 10_000_000 or start>end:
         raise ValueError('Invalid prediction evaluation filter')
@@ -75,22 +104,15 @@ def evaluate(archive_db, start, end, mode='backtest', offset=0):
             GROUP BY date,track,number)''',(model['id'],mode,start,end)):
             saved[(row['date'],row['track'],row['number'])] = row
     rows,excluded=[],Counter()
-    eligible=0
-    for group in features.iter_groups(archive_db, start, end):
-        reason=features.result_reason(group['race'],group['entries'])
-        if reason:
-            excluded[reason]+=1
-            continue
-        eligible+=1
-        prediction=saved.get(group['key'])
-        if prediction is None:
-            excluded['no_prediction']+=1
-            continue
-        row,reason=score_field(group,prediction,report)
+    matched=0
+    for group in matched_fields(archive_db,saved,start,end,excluded):
+        matched+=1
+        row,reason=score_field(group,saved[group['key']],report)
         if reason:
             excluded[reason]+=1
         else:
             rows.append(row)
+    eligible=matched+excluded['no_prediction']
     rows.sort(key=lambda r:(r['date'],r['track'],int(r['number'])),reverse=True)
     market_rows=[r for r in rows if r['market_credit'] is not None]
     summary={'eligible':eligible, 'evaluated':len(rows), 'unscored':eligible-len(rows),
