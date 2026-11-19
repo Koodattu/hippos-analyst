@@ -20,6 +20,11 @@ collector separately to add or refresh data. Use `--port 8766` if needed, or
 `python -m hippos_analyst --db data/another.sqlite3 serve` for another archive.
 There is no frontend build or package-install step.
 
+The hosted site is [horse.koodattu.dev](https://horse.koodattu.dev).
+For VM hosting, see the [Docker Compose deployment guide](docs/deployment.md).
+The web and collector share a small image and a persistent SQLite volume.
+Fresh forecasts use an optional CPU inference image.
+
 ```powershell
 python -m hippos_analyst seed --from 2025-10-22 --to 2025-10-22
 python -m hippos_analyst run --max-requests 3

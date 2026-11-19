@@ -1,0 +1,7 @@
+**
+!Dockerfile
+!LICENSE
+!hippos_analyst/
+!hippos_analyst/**
+**/__pycache__/
+**/*.pyc

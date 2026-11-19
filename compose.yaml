@@ -1,0 +1,82 @@
+x-runtime: &runtime
+  init: true
+  read_only: true
+  cap_drop: [ALL]
+  security_opt: [no-new-privileges:true]
+  tmpfs:
+    - /tmp:size=32m,mode=1777
+  volumes:
+    - archive:/data
+  logging:
+    driver: local
+    options:
+      max-size: "2m"
+      max-file: "3"
+
+services:
+  web:
+    <<: *runtime
+    image: hippos-analyst:${HIPPOS_IMAGE_TAG:-local}
+    build:
+      context: .
+      target: runtime
+    pull_policy: never
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:${HIPPOS_PORT:-8765}:8765"
+    environment:
+      HIPPOS_TRUSTED_HOSTS: ${HIPPOS_TRUSTED_HOSTS:-}
+    healthcheck:
+      test: ["CMD", "python", "-c", "from urllib.request import urlopen; urlopen('http://127.0.0.1:8765/healthz', timeout=3).close()"]
+      interval: 30s
+      timeout: 5s
+      start_period: 15s
+      retries: 3
+
+  collector:
+    <<: *runtime
+    profiles: [collect]
+    image: hippos-analyst:${HIPPOS_IMAGE_TAG:-local}
+    pull_policy: never
+    restart: "no"
+    depends_on:
+      web:
+        condition: service_healthy
+    command: ["python", "-m", "hippos_analyst.background", "--db", "/data/hippos.sqlite3",
+              "--continuous", "--delay", "${HIPPOS_DELAY:-30}", "--daily-budget", "${HIPPOS_DAILY_BUDGET:-200}"]
+
+  predictor:
+    <<: *runtime
+    profiles: [predict]
+    image: hippos-analyst-predictor:${HIPPOS_IMAGE_TAG:-local}
+    build:
+      context: .
+      target: predictor
+    pull_policy: never
+    restart: unless-stopped
+    depends_on:
+      web:
+        condition: service_healthy
+    command: ["python", "-m", "hippos_analyst.predictions", "predict", "--watch", "--db",
+              "/data/hippos.sqlite3", "--model", "/data/models/${HIPPOS_MODEL:-active}"]
+
+  backup:
+    <<: *runtime
+    profiles: [ops]
+    image: hippos-analyst:${HIPPOS_IMAGE_TAG:-local}
+    pull_policy: never
+    network_mode: none
+    environment:
+      HIPPOS_MODEL: ${HIPPOS_MODEL:-}
+    volumes:
+      - archive:/data
+      - type: bind
+        source: ${HIPPOS_BACKUP_DIR:-./backups}
+        target: /backups
+        bind:
+          create_host_path: false
+    command: ["python", "-m", "hippos_analyst.backup", "--db", "/data/hippos.sqlite3",
+              "--output", "/backups", "--keep", "${HIPPOS_BACKUP_KEEP:-7}"]
+
+volumes:
+  archive:

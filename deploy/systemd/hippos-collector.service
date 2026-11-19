@@ -1,0 +1,13 @@
+[Unit]
+Description=Start the configured Hippos collector once at VM boot
+Requires=docker.service
+After=docker.service network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+WorkingDirectory=/srv/projects/hippos-analyst
+ExecStart=/usr/bin/docker compose up -d --no-build collector
+
+[Install]
+WantedBy=multi-user.target

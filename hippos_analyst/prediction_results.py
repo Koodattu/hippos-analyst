@@ -70,14 +70,13 @@ def evaluate(archive_db, start, end, mode='backtest', offset=0):
         report=json.loads(model['report'])
         result.update(model_id=model['id'],fit_cutoff=fitting_cutoff(report))
         saved={}
-        for row in db.execute('''SELECT * FROM predictions WHERE model_id=? AND mode=?
-            AND date BETWEEN ? AND ? ORDER BY id DESC''',(model['id'],mode,start,end)):
-            saved.setdefault((row['date'],row['track'],row['number']),dict(row))
+        for row in db.execute('''SELECT * FROM predictions WHERE id IN (
+            SELECT max(id) FROM predictions WHERE model_id=? AND mode=? AND date BETWEEN ? AND ?
+            GROUP BY date,track,number)''',(model['id'],mode,start,end)):
+            saved[(row['date'],row['track'],row['number'])] = row
     rows,excluded=[],Counter()
     eligible=0
-    for group in features.read_groups(archive_db):
-        if not start <= group['key'][0] <= end:
-            continue
+    for group in features.iter_groups(archive_db, start, end):
         reason=features.result_reason(group['race'],group['entries'])
         if reason:
             excluded[reason]+=1

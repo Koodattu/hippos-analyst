@@ -1,11 +1,16 @@
-"""Read-only, loopback-only browser for the local archive. No upstream requests."""
+"""Read-only browser and WSGI application for the archive. No upstream requests."""
 
+import hashlib
 import json
+import os
+from contextlib import closing
+from http import HTTPStatus
 import sqlite3
 from datetime import datetime, timezone
-from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+from socketserver import ThreadingMixIn
+from wsgiref.simple_server import WSGIServer, make_server as make_wsgi_server
 from pathlib import Path
-from urllib.parse import parse_qs, urlsplit
+from urllib.parse import parse_qs
 
 from . import analytics, api, toto, browse, tracks, photos, prediction_store, prediction_results, race_results
 from .person_names import PersonNames
@@ -434,63 +439,84 @@ def endpoint(archive, path, params):
     raise LookupError("Not found")
 
 
-def make_server(db_path, port=8765):
+def application(db_path, trusted_hosts=()):
     db_uri = Path(db_path).resolve().as_uri() + "?mode=ro"
-
+    hosts = {"localhost", "127.0.0.1", *(h.strip().lower() for h in trusted_hosts if h.strip())}
     browse_cache = {}
 
-    class Handler(BaseHTTPRequestHandler):
-        def do_GET(self):
-            address = urlsplit(self.path)
-            if self.headers.get("Host", "").split(":")[0] not in ("localhost", "127.0.0.1"):
-                self.respond(403, b'{"error":"forbidden"}', "application/json")
-                return
-            if address.path.startswith('/media/'):
-                try:
-                    db = sqlite3.connect(db_uri, uri=True, timeout=10)
-                    db.row_factory = sqlite3.Row
-                    try:
-                        body = photos.image(db, address.path)
-                    finally:
-                        db.close()
-                    self.respond(200, body, 'image/jpeg')
-                except LookupError:
-                    self.respond(404, b'Not found', 'text/plain')
-                except sqlite3.Error:
-                    self.respond(503, b'Photo unavailable', 'text/plain')
-            elif address.path.startswith("/api/"):
-                try:
-                    db = sqlite3.connect(db_uri, uri=True, timeout=10)
-                    db.row_factory = sqlite3.Row
-                    try:
-                        db.execute("BEGIN")  # One consistent snapshot during collection.
-                        result = endpoint(Archive(db, browse_cache), address.path, parse_qs(address.query))
-                    finally:
-                        db.close()
-                    self.respond(200, json.dumps(result, ensure_ascii=False).encode("utf-8"), "application/json")
-                except ValueError:
-                    self.respond(400, b'{"error":"invalid_request"}', "application/json")
-                except LookupError:
-                    self.respond(404, b'{"error":"not_found"}', "application/json")
-                except sqlite3.Error:
-                    self.respond(503, b'{"error":"database_unavailable"}', "application/json")
-            elif address.path in ASSETS:
-                filename, content_type = ASSETS[address.path]
-                self.respond(200, (WEB / filename).read_bytes(), content_type)
-            else:
-                self.respond(404, b"Not found", "text/plain")
+    def dispatch(path, query):
+        if path in ASSETS:
+            filename, content_type = ASSETS[path]
+            return 200, (WEB / filename).read_bytes(), content_type
+        if path != '/healthz' and not path.startswith(('/media/', '/api/')):
+            return 404, b'Not found', 'text/plain'
+        media = path.startswith('/media/')
+        try:
+            with closing(sqlite3.connect(db_uri, uri=True, timeout=10)) as db:
+                db.row_factory = sqlite3.Row
+                if path == '/healthz':
+                    if db.execute('SELECT 1 FROM control WHERE id=1').fetchone():
+                        return 200, b'ok', 'text/plain'
+                    return 503, b'Archive unavailable', 'text/plain'
+                if media:
+                    return 200, photos.image(db, path), 'image/jpeg'
+                db.execute('BEGIN')
+                result = endpoint(Archive(db, browse_cache), path, parse_qs(query))
+            body = json.dumps(result, ensure_ascii=False, separators=(',', ':')).encode()
+            return 200, body, 'application/json'
+        except ValueError:
+            return 400, b'{"error":"invalid_request"}', 'application/json'
+        except LookupError:
+            if media:
+                return 404, b'Not found', 'text/plain'
+            return 404, b'{"error":"not_found"}', 'application/json'
+        except sqlite3.Error:
+            return 503, b'{"error":"database_unavailable"}', 'application/json'
 
-        def respond(self, status, body, content_type):
-            self.send_response(status)
-            self.send_header("Content-Type", content_type if content_type.startswith('image/') else content_type + "; charset=utf-8")
-            self.send_header("Content-Length", str(len(body)))
-            self.send_header("Cache-Control", "no-store")
-            self.send_header("X-Content-Type-Options", "nosniff")
-            self.send_header("Content-Security-Policy", "default-src 'self'; style-src 'self'; img-src 'self' data:; object-src 'none'; frame-ancestors 'none'; base-uri 'none'")
-            self.end_headers()
-            self.wfile.write(body)
+    def app(environ, start_response):
+        host, separator, port = environ.get('HTTP_HOST', '').lower().partition(':')
+        method = environ['REQUEST_METHOD']
+        path = environ['PATH_INFO']
+        headers = [('X-Content-Type-Options', 'nosniff'), ('Content-Security-Policy',
+            "default-src 'self'; style-src 'self'; img-src 'self' data:; object-src 'none'; frame-ancestors 'none'; base-uri 'none'")]
+        cache = 'no-store'
+        if host not in hosts or (separator and not port.isdecimal()):
+            status, body, mime = 403, b'{"error":"forbidden"}', 'application/json'
+        elif method not in ('GET', 'HEAD'):
+            status, body, mime = 405, b'Method not allowed', 'text/plain'
+            headers.append(('Allow', 'GET, HEAD'))
+        else:
+            status, body, mime = dispatch(path, environ.get('QUERY_STRING', ''))
+            if status == 200 and path in ASSETS:
+                tag = '"' + hashlib.sha256(body).hexdigest() + '"'
+                headers.append(('ETag', tag))
+                cache = 'private, no-cache'
+                if tag in (v.strip() for v in environ.get('HTTP_IF_NONE_MATCH', '').split(',')):
+                    status = 304
+        headers.append(('Cache-Control', cache))
+        if status != 304:
+            headers.extend([('Content-Type', mime if mime.startswith('image/') else mime + '; charset=utf-8'),
+                            ('Content-Length', str(len(body)))])
+        start_response(f'{status} {HTTPStatus(status).phrase}', headers)
+        return [] if method == 'HEAD' or status == 304 else [body]
 
-    return ThreadingHTTPServer(("127.0.0.1", port), Handler)
+    return app
+
+
+def deployment_app():
+    from . import store
+    path = os.environ.get('HIPPOS_DB', '/data/hippos.sqlite3')
+    # Gunicorn preload initializes or upgrades the archive before accepting traffic.
+    store.connect(path).close()
+    return application(path, os.environ.get('HIPPOS_TRUSTED_HOSTS', '').split(','))
+
+
+class LocalServer(ThreadingMixIn, WSGIServer):
+    daemon_threads = True
+
+
+def make_server(db_path, port=8765):
+    return make_wsgi_server('127.0.0.1', port, application(db_path), server_class=LocalServer)
 
 
 def serve(db_path, port):

@@ -2,6 +2,7 @@ import copy
 import importlib.util
 import json
 import math
+import os
 import sqlite3
 import tempfile
 import unittest
@@ -22,6 +23,24 @@ def group(day='2026-08-01', number='1'):
 
 
 class FeatureTests(unittest.TestCase):
+    def test_streamed_selection_preserves_same_day_and_earlier_history(self):
+        groups = [group(), group(number='2'), group('2026-08-02'), group('2026-08-02', '2')]
+        full, _ = f.build_features(copy.deepcopy(groups))
+        field, _ = f.selected_features(iter(groups), lambda g: g['key'] == full[-1]['key'])
+        self.assertEqual(field, [full[-1]])
+        self.assertNotIn('x', groups[0])
+
+    def test_watch_reacts_only_to_successful_race_inputs(self):
+        with tempfile.TemporaryDirectory() as temp:
+            db = store.connect(Path(temp) / 'archive.sqlite3')
+            try:
+                for path, outcome, expected in [('/horse/1', 'ok', None), ('/race/search/a', 'ok', 2),
+                                                ('/race/b', 'retry', 2), ('/horse/2', 'ok', 2),
+                                                ('/race/c', 'ok', 5)]:
+                    db.execute('INSERT INTO requests(path,started_at,outcome) VALUES(?,1,?)', (path, outcome))
+                    self.assertEqual(p.race_watermark(db), expected)
+            finally:
+                db.close()
     def test_current_outcomes_odds_and_career_totals_cannot_change_features(self):
         before, target = group(), group('2026-08-02')
         original = f.build_features(copy.deepcopy([before,target]))[0][-1]['x']
@@ -201,6 +220,7 @@ class PersistenceTests(unittest.TestCase):
                     db.execute("insert into requests(path,started_at,finished_at,outcome,snapshot_id) values(?,1,2,'ok',?)",(pathkey,cur.lastrowid))
                 db.commit()
                 self.assertEqual(len(f.read_groups(db)),1)
+                self.assertEqual(list(f.iter_groups(db, '2026-08-02', '2026-08-03')), [])
                 snap=p.snapshot(path)
                 db.execute("update snapshots set body='[]' where path=?",(api.calendar_path(day),));db.commit()
                 self.assertEqual(f.read_groups(db),[])
@@ -224,4 +244,9 @@ class CatBoostIntegrationTests(unittest.TestCase):
             expected=p.scores_for(model,groups)
             actual=p.scores_for(loaded,groups)
             self.assertEqual(expected,actual)
+            if os.environ.get('HIPPOS_CATBOOST_LIBRARY'):
+                native = p.artifact_scores(Path(temp), groups)
+                for reference, field in zip(expected, native, strict=True):
+                    for score, value in zip(reference, field, strict=True):
+                        self.assertAlmostEqual(score, value, places=12)
             self.assertTrue(all(abs(sum(p.softmax(s))-1)<1e-9 for s in actual))

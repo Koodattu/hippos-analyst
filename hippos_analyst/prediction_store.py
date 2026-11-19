@@ -28,6 +28,11 @@ def connect(database):
     return db
 
 
+def register_model(db, artifact, report):
+    db.execute('INSERT INTO models(id,created_at,artifact,report) VALUES(?,?,?,?) ON CONFLICT(id) DO NOTHING',
+               (report['id'], report['created_at'], str(artifact), json.dumps(report)))
+
+
 def save(db, model_id, group, probabilities, mode, source_request, now, report):
     if len(probabilities) != len(group['starters']) or abs(sum(probabilities)-1) > 1e-6:
         raise ValueError('Invalid field probabilities')

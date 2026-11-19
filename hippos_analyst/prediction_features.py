@@ -6,6 +6,7 @@ import math
 import re
 from collections import Counter, defaultdict
 from datetime import date, datetime
+from itertools import groupby
 from zoneinfo import ZoneInfo
 
 from . import api, race_results
@@ -83,49 +84,62 @@ def scheduled_at(race):
         return None
 
 
-def read_groups(db):
-    """Use latest successful source membership, including field completeness."""
-    heads = {r['path']: r for r in db.execute('''SELECT q.id,q.path,q.finished_at,s.body
-        FROM requests q JOIN snapshots s ON s.id=q.snapshot_id
-        WHERE q.id IN (SELECT max(id) FROM requests WHERE outcome='ok' GROUP BY path)''')}
+def iter_groups(db, start='0001-01-01', end='9999-12-31'):
+    """Yield current fields in feature order, reading only visible race snapshots."""
+    def head(path):
+        return db.execute("""SELECT q.id,q.finished_at,s.body FROM requests q
+            JOIN snapshots s ON s.id=q.snapshot_id WHERE q.path=? AND q.outcome='ok'
+            ORDER BY q.id DESC LIMIT 1""", (path,)).fetchone()
+
     visible = set()
-    for path, row in heads.items():
-        if path.startswith('/race/search/'):
-            for meeting in json.loads(row['body']):
-                if not meeting.get('canceled'):
-                    visible.add((meeting['date'], str(meeting['trackCode'])))
-    groups = []
+    calendars = db.execute("""SELECT s.body FROM snapshots s JOIN requests q ON s.id=q.snapshot_id
+        WHERE q.id IN (SELECT max(id) FROM requests WHERE outcome='ok'
+        AND path GLOB '/race/search/*' GROUP BY path)""")
+    for row in calendars:
+        for meeting in json.loads(row['body']):
+            if not meeting.get('canceled') and start <= meeting['date'] <= end:
+                visible.add((meeting['date'], str(meeting['trackCode'])))
     for day, track in sorted(visible):
-        race_head = heads.get(api.races_path(day, track))
+        race_head = head(api.races_path(day, track))
         if race_head is None:
             continue
-        for race in json.loads(race_head['body']):
+        for race in sorted(json.loads(race_head['body']), key=lambda r: str(r['startNumber'])):
             key = (day, track, str(race['startNumber']))
-            field = heads.get(api.runners_path(*key))
+            field = head(api.runners_path(*key))
             if field is None:
                 continue
             entries = sorted(json.loads(field['body']), key=lambda e: int(e['programNumber']))
-            groups.append({'key': key, 'race': race, 'entries': entries,
-                           'signature': signature(race, entries), 'field_at': field['finished_at'],
-                           'request_id': field['id']})
-    return sorted(groups, key=lambda g: g['key'])
+            yield {'key': key, 'race': race, 'entries': entries, 'signature': signature(race, entries),
+                   'field_at': field['finished_at'], 'request_id': field['id']}
+
+
+def read_groups(db):
+    return list(iter_groups(db))
 
 
 def build_features(groups):
     """Batch each date: even another race that same day cannot supply history."""
+    _, excluded = selected_features(sorted(groups, key=lambda g: g['key'][0]), lambda g: True)
+    return groups, excluded
+
+
+def selected_features(ordered_groups, select):
+    """Keep history from all settled fields but materialize features only for selected fields."""
     horses, drivers, trainers = defaultdict(list), defaultdict(list), defaultdict(list)
     discipline_drivers, discipline_trainers = defaultdict(list), defaultdict(list)
-    dates = defaultdict(list)
-    for g in groups:
-        dates[g['key'][0]].append(g)
     excluded = Counter()
-    for day, daily in sorted(dates.items()):
+    selected = []
+    for day, batch in groupby(ordered_groups, key=lambda g: g['key'][0]):
+        daily = list(batch)
         for g in daily:
             race = g['race']
             kind = discipline(race)
             g['reason'] = result_reason(race, g['entries'])
             excluded[g['reason'] or 'eligible'] += 1
             g['starters'] = [e for e in g['entries'] if not e.get('absent')]
+            if not select(g):
+                continue
+            selected.append(g)
             rows, forms, times = [], [], []
             for e in g['starters']:
                 history = horses[str(e['horseId'])]
@@ -190,4 +204,4 @@ def build_features(groups):
                 if e.get('trainerId'):
                     trainers[str(e['trainerId'])].append(win)
                     discipline_trainers[(str(e['trainerId']),discipline(g['race']))].append(win)
-    return groups, dict(excluded)
+    return selected, dict(excluded)

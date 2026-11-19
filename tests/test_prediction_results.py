@@ -78,6 +78,27 @@ class ScoringTests(unittest.TestCase):
 
 
 class EvaluationTests(unittest.TestCase):
+    def test_deployed_model_populates_fresh_prediction_database(self):
+        with tempfile.TemporaryDirectory() as temp:
+            artifact = Path(temp)
+            path = artifact / 'hippos.sqlite3'
+            model_report = dict(report(), created_at=1, temperature=1)
+            (artifact / 'report.json').write_text(json.dumps(model_report))
+            field = group('2099-08-01')
+            field['race']['status'] = '0'
+            for runner in field['entries']:
+                runner['placing'] = '0'
+            groups, _ = features.build_features([field])
+            with patch.object(predictions, 'selected_inputs', return_value=(3, groups)), \
+                    patch.object(predictions, 'artifact_scores', return_value=[[1, 0]]):
+                for _ in range(2):
+                    predictions.predict(path, artifact, now=field['field_at'])
+            db = sqlite3.connect(persistence.path_for(path))
+            try:
+                self.assertEqual(db.execute('SELECT id FROM models').fetchall(), [('v1',)])
+                self.assertEqual(db.execute('SELECT model_id FROM predictions').fetchall(), [('v1',)])
+            finally:
+                db.close()
     def test_latest_version_once_summary_before_pagination_and_mode_separation(self):
         with tempfile.TemporaryDirectory() as temp:
             path=Path(temp)/'archive.sqlite3'
@@ -90,7 +111,9 @@ class EvaluationTests(unittest.TestCase):
                         persistence.save(output,'v1',g,[.1,.9],'backtest',1,g['field_at'],report())
                         persistence.save(output,'v1',g,[.7,.3],'backtest',2,g['field_at']+10,report())
                     persistence.save(output,'v1',groups[0],[.1,.9],'forecast',1,groups[0]['field_at']+10,report())
-                with patch.object(features,'read_groups',return_value=groups):
+                def in_range(db, start, end):
+                    return (g for g in groups if start <= g['key'][0] <= end)
+                with patch.object(features,'iter_groups',side_effect=in_range):
                     page=results.evaluate(archive,'2026-08-01','2026-08-01',offset=30)
                     self.assertEqual(page['summary']['evaluated'],35)
                     self.assertEqual(page['summary']['hits'],35)
@@ -120,7 +143,7 @@ class EvaluationTests(unittest.TestCase):
     def test_backtest_overlap_rejected_before_reading_archive_or_loading_model(self):
         with tempfile.TemporaryDirectory() as temp:
             artifact=Path(temp);(artifact/'report.json').write_text(json.dumps(report()),encoding='utf-8')
-            with patch.object(predictions,'snapshot') as snapshot:
+            with patch.object(predictions,'selected_inputs') as read:
                 with self.assertRaisesRegex(ValueError,'after training, tuning and calibration'):
                     predictions.backtest('nonexistent.sqlite3',artifact,'2026-07-31','2026-08-01')
-                snapshot.assert_not_called()
+                read.assert_not_called()

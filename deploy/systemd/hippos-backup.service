@@ -1,0 +1,9 @@
+[Unit]
+Description=Back up the Hippos archive
+Requires=docker.service
+After=docker.service
+
+[Service]
+Type=oneshot
+WorkingDirectory=/srv/projects/hippos-analyst
+ExecStart=/usr/bin/docker compose run --rm --no-deps -T backup

@@ -157,8 +157,13 @@ no-op. A later backtest cannot replace an existing prospective forecast in the U
 The API reads this database without importing CatBoost and hides a prediction when
 the field signature differs (including scratches, identities, drivers or schedule).
 
-`predict --watch` checks the local request watermark once per minute and recalculates
-on changes. It does not retrain the model, poll upstream or install a scheduler.
+`predict --watch` checks for successful calendar, race-list or field requests once
+per minute. Profile, photo and Toto requests alone leave the model inputs unchanged.
+Each scoring pass reads the full archive request watermark and race history in one
+SQLite read transaction, keeps feature rows for eligible fields and releases the
+transaction before scoring. Offline training still saves its reproducible archive copy.
+The [VM inference image](deployment.md) runs the frozen model with the CatBoost CPU
+evaluation library. Local training and scoring can use the Python ML environment.
 It was started windowless as PID 45696; launcher PID is in `data/predictions.pid`.
 Logs: `data/predictions.stdout.log` and `data/predictions.stderr.log`. Verify process
 identity before stopping it; this process is separate from the Hippos collector.

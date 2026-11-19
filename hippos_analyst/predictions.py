@@ -3,6 +3,7 @@
 import argparse
 import json
 import math
+import os
 import random
 import sqlite3
 import time
@@ -114,26 +115,43 @@ def forecast_eligible(group, report, now):
             and not any(str(e.get('placing') or '0') != '0' for e in group['entries']))
 
 
+def selected_inputs(database, select):
+    """Read one WAL snapshot and release it before scoring or writing predictions."""
+    with closing(sqlite3.connect(Path(database).resolve().as_uri()+'?mode=ro', uri=True)) as db:
+        db.row_factory = sqlite3.Row
+        db.execute('BEGIN')
+        token = db.execute("SELECT coalesce(max(id),0) FROM requests WHERE outcome='ok'").fetchone()[0]
+        selected, _ = features.selected_features(features.iter_groups(db), select)
+    return token, selected
+
+
+def artifact_scores(artifact, groups, model=None):
+    if not groups:
+        return []
+    if model is None:
+        library = os.environ.get('HIPPOS_CATBOOST_LIBRARY')
+        if library:
+            from . import native_prediction
+            return native_prediction.scores(library, artifact / 'model.cbm', groups)
+        from catboost import CatBoostRanker
+        model = CatBoostRanker()
+        model.load_model(str(artifact / 'model.cbm'))
+    return scores_for(model, groups)
+
+
 def predict(database, artifact, model=None, now=None):
-    from catboost import CatBoostRanker
     now = time.time() if now is None else now
     report = json.loads((artifact/'report.json').read_text(encoding='utf-8'))
     if report['features'] != features.FEATURES or report.get('feature_version',1) != features.FEATURE_VERSION:
         raise ValueError('Model feature schema mismatch; train a new model')
-    if model is None:
-        model = CatBoostRanker()
-        model.load_model(str(artifact/'model.cbm'))
-    db = snapshot(database)
-    try:
-        token = db.execute("SELECT coalesce(max(id),0) FROM requests WHERE outcome='ok'").fetchone()[0]
-        groups, _ = features.build_features(features.read_groups(db))
-    finally:
-        db.close()
-    selected = [g for g in groups if forecast_eligible(g, report, now)]
-    scores = scores_for(model, selected)
+    token, selected = selected_inputs(database, lambda g: forecast_eligible(g, report, now))
+    if not selected:
+        return 0
+    scores = artifact_scores(artifact, selected, model)
     output = persistence.connect(database)
     try:
         with output:
+            persistence.register_model(output, artifact, report)
             for g, values in zip(selected, scores):
                 # Inference may take time; never publish a newly created past-start forecast.
                 created = max(now, time.time())
@@ -193,8 +211,7 @@ def train(database):
     output = persistence.connect(database)
     try:
         with output:
-            output.execute('INSERT INTO models VALUES(?,?,?,?)',
-                           (identity, report['created_at'], str(artifact), json.dumps(report)))
+            persistence.register_model(output, artifact, report)
             for g, p in zip(test, probabilities):
                 persistence.save(output, identity, g, p, 'backtest', token, report['created_at'], report)
     finally:
@@ -213,29 +230,32 @@ def backtest(database, artifact, start, end):
         raise ValueError('Model feature schema mismatch')
     if start <= fitting_cutoff(report) or start > end:
         raise ValueError('Backtest dates must be after training, tuning and calibration')
-    from catboost import CatBoostRanker
-    db=snapshot(database)
-    try:
-        token=db.execute("SELECT coalesce(max(id),0) FROM requests WHERE outcome='ok'").fetchone()[0]
-        groups,_=features.build_features(features.read_groups(db))
-    finally:
-        db.close()
     now=time.time()
     today=datetime.now(features.ZoneInfo('Europe/Helsinki')).date().isoformat()
-    selected=[g for g in groups if start <= g['key'][0] <= min(end,today) and not g['reason']
-              and features.scheduled_at(g['race']) is not None and features.scheduled_at(g['race']) < now]
+    def eligible(group):
+        scheduled = features.scheduled_at(group['race'])
+        return (start <= group['key'][0] <= min(end, today) and not group['reason']
+                and scheduled is not None and scheduled < now)
+
+    token, selected = selected_inputs(database, eligible)
     if not selected:
         return {'races':0}
-    model=CatBoostRanker();model.load_model(str(artifact/'model.cbm'))
-    probabilities=[softmax(s,report['temperature']) for s in scores_for(model,selected)]
+    probabilities=[softmax(s,report['temperature']) for s in artifact_scores(artifact, selected)]
     output=persistence.connect(database)
     try:
         with output:
+            persistence.register_model(output, artifact, report)
             for g,ps in zip(selected,probabilities):
                 persistence.save(output,report['id'],g,ps,'backtest',token,now,report)
     finally:
         output.close()
     return {'races':len(selected),'fit_cutoff':fitting_cutoff(report),'metrics':comparison(selected,probabilities)}
+
+
+def race_watermark(db):
+    # Only calendars, race lists and runner fields feed the frozen model.
+    return db.execute("""SELECT max(id) FROM requests WHERE outcome='ok'
+        AND path GLOB '/race/*'""").fetchone()[0]
 
 
 def main():
@@ -262,7 +282,7 @@ def main():
     last_token = None
     while True:
         with closing(sqlite3.connect(Path(args.db).resolve().as_uri()+'?mode=ro',uri=True)) as db:
-            token = db.execute("SELECT max(id) FROM requests WHERE outcome='ok'").fetchone()[0]
+            token = race_watermark(db)
         if token != last_token:
             print(json.dumps({'created_at': time.time(), 'eligible_forecasts': predict(args.db,args.model)}),flush=True)
             last_token = token
