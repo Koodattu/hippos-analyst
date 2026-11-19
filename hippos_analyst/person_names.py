@@ -3,24 +3,6 @@
 import json
 from itertools import chain
 
-from . import api
-
-
-def visible_entries(db):
-    # Read list heads together: resolving one race must not issue a query per
-    # unrelated archived day. Removed meetings/races cannot supply name evidence.
-    heads = {row[0]: json.loads(row[1]) for row in db.execute("""
-        SELECT r.path,s.body FROM requests r JOIN snapshots s ON s.id=r.snapshot_id
-        WHERE r.id IN (SELECT max(id) FROM requests WHERE outcome='ok'
-            AND (path LIKE '/race/search/%' OR path LIKE '%/races') GROUP BY path)""")}
-    keys = {(meeting['date'], str(meeting['trackCode']), str(race['startNumber']))
-            for path, meetings in heads.items() if path.startswith('/race/search/')
-            for meeting in meetings
-            for race in heads.get(api.races_path(meeting['date'], str(meeting['trackCode'])), [])}
-    for row in db.execute('SELECT date,track,race_number,data FROM entries'):
-        if tuple(row[:3]) in keys:
-            yield json.loads(row[3])
-
 
 def full_driver_name(entry):
     parts = [entry.get('driverFirstName'), entry.get('driverLastName')]
@@ -48,10 +30,20 @@ def compatible(short, full):
 
 class PersonNames:
     @classmethod
-    def from_archive(cls, db):
+    def from_archive(cls, db, entry_filter):
+        # Each index groups identical evidence together. Only distinct names cross
+        # into Python, even when a driver has appeared in thousands of races.
+        drivers = (dict(driverId=row[0], driverFirstName=row[1], driverLastName=row[2])
+                   for row in db.execute(f"""SELECT DISTINCT CAST(json_extract(data,'$.driverId') AS TEXT),
+                       nullif(json_extract(data,'$.driverFirstName'),''),nullif(json_extract(data,'$.driverLastName'),'')
+                       FROM entries INDEXED BY entries_driver_names WHERE {entry_filter}"""))
+        trainers = (dict(trainerId=row[0], trainerName=row[1])
+                    for row in db.execute(f"""SELECT DISTINCT CAST(json_extract(data,'$.trainerId') AS TEXT),
+                        nullif(json_extract(data,'$.trainerName'),'') FROM entries INDEXED BY entries_trainer_names
+                        WHERE {entry_filter}"""))
         profiles = (json.loads(row[0]) for row in db.execute(
             "SELECT data FROM horse_profiles WHERE json_extract(data,'$.trainerId') IS NOT NULL"))
-        return cls(chain(visible_entries(db), profiles))
+        return cls(chain(drivers, trainers, profiles))
 
     def __init__(self, entries):
         candidates = {}

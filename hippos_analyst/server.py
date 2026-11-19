@@ -2,6 +2,7 @@
 
 import hashlib
 import json
+import logging
 import os
 from contextlib import closing
 from http import HTTPStatus
@@ -27,6 +28,19 @@ for _photo in ('vermo', 'teivo', 'track-f', 'track-j', 'track-jo', 'track-k', 't
                'track-s', 'track-tk', 'track-to', 'track-y'):
     ASSETS[f'/images/{_photo}.jpg'] = (f'images/{_photo}.jpg', 'image/jpeg')
 
+# The latest successful calendar determines membership. A listed meeting may
+# still be waiting for its first race list.
+LISTED_MEETINGS = """
+    FROM (SELECT max(id) AS id FROM requests WHERE outcome='ok'
+          AND path GLOB '/race/search/*' GROUP BY path) latest
+    JOIN requests c ON c.id=latest.id JOIN snapshots calendar ON calendar.id=c.snapshot_id
+    CROSS JOIN json_each(calendar.body) item
+    JOIN meetings m ON m.date=json_extract(item.value,'$.date')
+        AND m.track=CAST(json_extract(item.value,'$.trackCode') AS TEXT)
+    LEFT JOIN snapshots list ON list.id=(SELECT snapshot_id FROM requests
+        WHERE outcome='ok' AND path='/race/'||m.date||'/'||m.track||'/races' ORDER BY id DESC LIMIT 1)
+"""
+
 
 class Archive:
     def __init__(self, db, browse_cache=None):
@@ -35,6 +49,22 @@ class Archive:
         self.browse_cache = browse_cache
         self.heads = {}
         self._person_names = None
+        self._entry_filter = None
+
+    def entry_filter(self):
+        """Exclude retained races removed from the latest source lists during index scans."""
+        if self._entry_filter is None:
+            visible_keys = ("SELECT m.date,m.track,CAST(json_extract(r.value,'$.startNumber') AS TEXT) "
+                            + LISTED_MEETINGS + " CROSS JOIN json_each(list.body) r")
+            hidden_keys = "SELECT date,track,number FROM races EXCEPT " + visible_keys
+            hidden = self.db.execute(hidden_keys + " LIMIT 1").fetchone()
+            self._entry_filter = '1'
+            if hidden:
+                # Match removed fields through the race index. The name indexes
+                # can still supply rowids without reading every runner's JSON.
+                self._entry_filter = f"""rowid NOT IN (SELECT e.rowid FROM ({hidden_keys}) h
+                    CROSS JOIN entries e WHERE e.date=h.date AND e.track=h.track AND e.race_number=h.number)"""
+        return self._entry_filter
 
     def photo(self, kind, entity_id):
         return photos.get(self.db, kind, entity_id)
@@ -47,7 +77,7 @@ class Archive:
             if cached and cached[0] == token:
                 self._person_names = cached[1]
             else:
-                self._person_names = PersonNames.from_archive(self.db)
+                self._person_names = PersonNames.from_archive(self.db, self.entry_filter())
                 if self.browse_cache is not None:
                     self.browse_cache['person_names'] = (token, self._person_names)
         return self._person_names
@@ -111,13 +141,18 @@ class Archive:
 
     def overview(self):
         span = self.db.execute("SELECT min(json_extract(context,'$.date')),max(json_extract(context,'$.date')) FROM jobs WHERE kind='calendar' AND last_success IS NOT NULL").fetchone()
-        meetings = self.meeting_rows()
-        tracks = {m['track']: json.loads(m['data']).get('formattedTrackName') or m['city'] or m['track'] for m in meetings}
-        # Calendar/race-list membership is enough for totals; never load runner fields here.
-        races = sum(len((self.head(api.races_path(m['date'], m['track'])) or ([], None))[0]) for m in meetings)
-        return {"meeting_count": len(meetings), "race_count": races,
+        meetings = self.db.execute("""
+            SELECT m.track,coalesce(nullif(json_extract(m.data,'$.formattedTrackName'),''),nullif(m.city,''),m.track),
+                   coalesce(json_array_length(list.body),0)""" + LISTED_MEETINGS + " ORDER BY m.date,m.start_time,m.track")
+        track_names = {}
+        meeting_count = race_count = 0
+        for track, name, races in meetings:
+            track_names[track] = name
+            meeting_count += 1
+            race_count += races
+        return {"meeting_count": meeting_count, "race_count": race_count,
                 "horse_count": self.db.execute("SELECT count(*) FROM horses").fetchone()[0],
-                "first_date": span[0], "last_date": span[1], "tracks": tracks,
+                "first_date": span[0], "last_date": span[1], "tracks": track_names,
                 "last_fetched_at": self.db.execute("SELECT max(finished_at) FROM requests WHERE outcome='ok'").fetchone()[0],
                 "pending": self.db.execute("SELECT count(*) FROM jobs WHERE status='pending'").fetchone()[0],
                 "failed": self.db.execute("SELECT count(*) FROM jobs WHERE status='failed'").fetchone()[0],
@@ -470,7 +505,8 @@ def application(db_path, trusted_hosts=()):
             if media:
                 return 404, b'Not found', 'text/plain'
             return 404, b'{"error":"not_found"}', 'application/json'
-        except sqlite3.Error:
+        except sqlite3.Error as exc:
+            logging.getLogger(__name__).warning("Archive read failed (%s)", getattr(exc, 'sqlite_errorname', type(exc).__name__))
             return 503, b'{"error":"database_unavailable"}', 'application/json'
 
     def app(environ, start_response):

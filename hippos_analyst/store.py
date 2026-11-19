@@ -78,6 +78,11 @@ def connect(path):
             FOREIGN KEY(date, track, race_number) REFERENCES races(date, track, number)
         );
         CREATE INDEX IF NOT EXISTS entries_horse ON entries(horse_id, date);
+        CREATE INDEX IF NOT EXISTS entries_driver_names ON entries(
+            CAST(json_extract(data,'$.driverId') AS TEXT),
+            nullif(json_extract(data,'$.driverFirstName'),''),nullif(json_extract(data,'$.driverLastName'),''));
+        CREATE INDEX IF NOT EXISTS entries_trainer_names ON entries(
+            CAST(json_extract(data,'$.trainerId') AS TEXT),nullif(json_extract(data,'$.trainerName'),''));
         CREATE TABLE IF NOT EXISTS toto_targets (
             date TEXT NOT NULL, track TEXT NOT NULL, number TEXT NOT NULL,
             card_id TEXT, race_id TEXT UNIQUE, scheduled_start REAL, race_status TEXT,

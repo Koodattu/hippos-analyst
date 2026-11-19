@@ -157,35 +157,36 @@ def directory_records(archive, kind, today):
     cached = archive.browse_cache.get(kind) if archive.browse_cache is not None else None
     if cached and cached[0] == token:
         return cached[1]
-    source, args = visible(archive)
+    membership = archive.entry_filter()
+    known = "result_known(absent,placing,json_extract(data,'$.disqualifiedCode'))"
+    dates = f"""max(CASE WHEN date<? OR {known} THEN date END) AS last_date,
+                min(CASE WHEN date>=? AND NOT {known} THEN date END) AS next_date"""
+    # Group in index order so SQLite never sorts the archive's full runner JSON.
     if kind == 'horses':
-        source += """, activity AS (SELECT horse_id,count(*) AS entries,
-            max(CASE WHEN date<? OR result_known THEN date END) AS last_date,
-            min(CASE WHEN date>=? AND NOT result_known THEN date END) AS next_date
-            FROM visible GROUP BY horse_id)
+        rows = archive.db.execute(f"""WITH activity AS (SELECT horse_id,count(*) AS entries,{dates}
+            FROM entries INDEXED BY entries_horse WHERE {membership} GROUP BY horse_id)
             SELECT h.*,coalesce(a.entries,0) AS entries,a.last_date,a.next_date,
                 json_extract(p.data,'$.gender') AS gender,
                 json_extract(p.data,'$.birthDate') AS birth_date,
                 CAST(substr(?,1,4) AS INTEGER)-CAST(substr(json_extract(p.data,'$.birthDate'),1,4) AS INTEGER) AS age
             FROM horses h LEFT JOIN activity a ON a.horse_id=h.id
-            LEFT JOIN horse_profiles p ON p.horse_id=h.id"""
-        args += [today,today,today]
+            LEFT JOIN horse_profiles p ON p.horse_id=h.id""", (today,today,today))
+        records = [dict(row) for row in rows]
     else:
         archive.db.create_aggregate('latest_name',6,LatestName)
-        source += """, roles(role) AS (VALUES ('driver'),('trainer')), people_entries AS (
-            SELECT horse_id,date,absent,placing,fetched_at,track,race_number,program_number,role,result_known,
-                CAST(json_extract(data,'$.'||role||'Id') AS TEXT) AS id,
-                trim(coalesce(json_extract(data,'$.'||role||'Name'),'')) AS name
-            FROM visible CROSS JOIN roles WHERE id IS NOT NULL AND id NOT IN ('','0'))
-            SELECT id,role,latest_name(name,fetched_at,date,track,race_number,program_number) AS name,
-                count(DISTINCT horse_id) AS horses,count(*) AS entries,
-                max(CASE WHEN date<? OR result_known THEN date END) AS last_date,
-                min(CASE WHEN date>=? AND NOT result_known THEN date END) AS next_date,
-                max(fetched_at) AS fetched_at FROM people_entries GROUP BY role,id
-            UNION ALL SELECT party_key,role,label,count(*),NULL,NULL,NULL,max(p.fetched_at)
-                FROM horse_parties r JOIN horse_profiles p ON p.horse_id=r.horse_id GROUP BY role,party_key,label"""
-        args += [today,today]
-    records = [dict(row) for row in archive.db.execute(source,args)]
+        records = []
+        for role in ('driver','trainer'):
+            person_id = f"CAST(json_extract(data,'$.{role}Id') AS TEXT)"
+            rows = archive.db.execute(f"""SELECT {person_id} AS id,'{role}' AS role,
+                latest_name(trim(coalesce(json_extract(data,'$.{role}Name'),'')),
+                    fetched_at,date,track,race_number,program_number) AS name,
+                count(DISTINCT horse_id) AS horses,count(*) AS entries,{dates},max(fetched_at) AS fetched_at
+                FROM entries INDEXED BY entries_{role}_names
+                WHERE {membership} AND {person_id} NOT IN ('','0') GROUP BY {person_id}""", (today,today))
+            records.extend(dict(row) for row in rows)
+        records.extend(dict(row) for row in archive.db.execute("""SELECT party_key AS id,role,label AS name,
+            count(*) AS horses,NULL AS entries,NULL AS last_date,NULL AS next_date,max(p.fetched_at) AS fetched_at
+            FROM horse_parties r JOIN horse_profiles p ON p.horse_id=r.horse_id GROUP BY role,party_key,label"""))
     if kind == 'people':
         names = archive.person_names()
         for row in records:

@@ -163,7 +163,7 @@ export const fi = {
   fullRace: 'Avaa erillinen lähtönäkymä', calendarSummary: (m, r, h) => `${m} ravipäivää · ${r} lähtöä · ${h} hevosta`,
   near: 'Lähiaika', lastWeekShort: 'Viimeiset 7 pv', from: 'Alkaen', to: 'Päättyen', track: 'Rata', allTracks: 'Kaikki radat',
   apply: 'Näytä', collected: 'Kerätty aineisto', loading: 'Ladataan aineistoa…',
-  error: 'Aineistoa ei voitu ladata', errorHint: 'Tarkista, että paikallinen palvelin on käynnissä, ja yritä uudelleen.',
+  error: 'Aineistoa ei voitu ladata', errorHint: 'Yritä hetken kuluttua uudelleen.',
   notFound: 'Tietoa ei löydy tästä aineistosta', notFoundHint: 'Tietoa ei ole kerätty tai se on poistunut viimeisimmästä lähdelistasta.',
   retry: 'Yritä uudelleen', backCalendar: 'Takaisin kalenteriin', backMeeting: 'Takaisin ravipäivään',
   backHorses: 'Takaisin hevosiin', backRace: 'Takaisin lähtöön', today: 'Tänään', tomorrow: 'Huomenna', results: 'Tuloksia',

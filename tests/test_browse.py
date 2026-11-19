@@ -55,6 +55,20 @@ class BrowseTests(unittest.TestCase):
         self.assertEqual(self.read('directory/people')['total'],0)
         self.assertEqual(self.read('directory/horses')['rows'][0]['entries'],0)
 
+    def test_removed_race_cannot_change_a_visible_persons_name_or_directory_counts(self):
+        entry = dict(self.runner, driverId='41', driverName='A Korpi', driverFirstName='Antti',
+                     driverLastName='Korpi', trainerId='41', trainerName='Antti Korpi')
+        self.save('runners', [entry])
+        self.save('runners', [entry], number='10')
+        self.save('runners', [dict(entry, horseId='22', driverFirstName='Ari',
+                                   driverName='Ari Korpi', trainerName='Ari Korpi')], number='2')
+        self.save('races', self.races[:2])
+        rows = self.read('directory/people')['rows']
+        self.assertEqual([(r['role'], r['name'], r['entries'], r['horses']) for r in rows],
+                         [('driver', 'Antti Korpi', 2, 1), ('trainer', 'Antti Korpi', 2, 1)])
+        counts = {r['id']: r['entries'] for r in self.read('directory/horses')['rows']}
+        self.assertEqual(counts, {HORSE: 2, '22': 0})
+
     def test_zero_placing_disqualification_is_a_result_not_an_upcoming_start(self):
         self.save('runners',[{**self.runner,'placing':'0','disqualifiedCode':'hpl','driverId':'123','driverName':'Test'}])
         activity=self.read('activity',role='driver',id='123',period='history')
