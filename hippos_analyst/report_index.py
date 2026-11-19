@@ -1,6 +1,7 @@
 """Current field metadata and daily leaderboard contributions for read-only pages."""
 
 import json
+import time
 from dataclasses import dataclass
 
 from . import api, directory_index, prediction_features, race_results
@@ -79,3 +80,27 @@ def catch_up(db):
     for day, in days:
         refresh_day(db, day)
     db.execute("INSERT OR REPLACE INTO maintenance_state VALUES('reports_v1',?)", (str(latest),))
+
+
+def initialize(db):
+    # Existing collectors can keep committing during the first historical backfill.
+    # Replay their intervening observations before publishing the completion marker.
+    if not db.execute("SELECT 1 FROM maintenance_state WHERE name='reports_v1'").fetchone():
+        start = db.execute("SELECT coalesce(max(id),0) FROM requests WHERE outcome='ok'").fetchone()[0]
+        days = [row[0] for row in db.execute("SELECT DISTINCT date FROM meetings ORDER BY date")]
+        for offset in range(0,len(days),16):
+            with db:
+                db.execute("BEGIN IMMEDIATE")
+                if db.execute("SELECT 1 FROM maintenance_state WHERE name='reports_v1'").fetchone():
+                    break
+                for day in days[offset:offset+16]:
+                    refresh_day(db,day)
+            # SQLite writers retry on a short backoff; leave a gap between batches.
+            time.sleep(0.05)
+        with db:
+            db.execute("INSERT OR IGNORE INTO maintenance_state VALUES('reports_v1',?)", (str(start),))
+            catch_up(db)
+    else:
+        with db:
+            db.execute("BEGIN IMMEDIATE")
+            catch_up(db)

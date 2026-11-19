@@ -162,9 +162,7 @@ def connect(path):
     from . import tracks
     tracks.initialize(db)
     directory_index.initialize(db)
-    with db:
-        db.execute('BEGIN IMMEDIATE')
-        report_index.catch_up(db)
+    report_index.initialize(db)
     return db
 
 

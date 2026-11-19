@@ -94,6 +94,31 @@ class ArchiveTests(unittest.TestCase):
         self.assertEqual(read('2026-11-09','month','starts')['rows'][0]['starts'],1)
         self.assertEqual(read('2027-01-01','year','wins')['total'],0)
 
+    def test_first_report_backfill_releases_writer_and_replays_an_intervening_calendar(self):
+        import sqlite3
+        from unittest.mock import patch
+        from hippos_analyst import report_index
+        self.save('races',[dict(self.races[0],status='2',startType='TOTO')])
+        self.save('runners',[dict(self.runner,placing='1')])
+        with self.db:
+            self.db.execute("DELETE FROM maintenance_state WHERE name='reports_v1'")
+        def old_collector(_):
+            # An older release removes the meeting after its day was backfilled.
+            other = sqlite3.connect(self.path,timeout=0)
+            try:
+                with other:
+                    path = api.calendar_path(DAY)
+                    snapshot = other.execute("""INSERT INTO snapshots(path,sha256,first_seen,body)
+                        VALUES(?,'empty',200,'[]')""",(path,)).lastrowid
+                    other.execute("""INSERT INTO requests(path,started_at,finished_at,outcome,snapshot_id)
+                        VALUES(?,200,200,'ok',?)""",(path,snapshot))
+            finally:
+                other.close()
+        with patch.object(report_index.time,'sleep',side_effect=old_collector):
+            report_index.initialize(self.db)
+        self.assertEqual(self.db.execute('SELECT count(*) FROM leaderboard_days').fetchone()[0],0)
+        self.assertEqual(self.db.execute('SELECT count(*) FROM report_fields').fetchone()[0],0)
+
     def test_saved_horses_are_bounded_and_return_only_current_or_future_entries(self):
         self.save("runners", [self.runner])
         data = endpoint(Archive(self.db), '/api/saved', {'ids': [HORSE + ',999'], 'from': [DAY]})
