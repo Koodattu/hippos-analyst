@@ -144,8 +144,12 @@ class BrowseTests(unittest.TestCase):
                               dict(self.runner,horseId='22',programNumber='2',driverId='7',
                                    driverName='J Korpi',absent=True)])
         expected = self.read('activity',role='driver',id='7')
+        legacy = Archive(self.db).person('driver','7',DAY)
+        self.assertEqual(legacy['summary'],expected['summary'])
+        self.assertEqual(legacy['person']['source_name'],expected['person']['source_name'].strip(' '))
         self.db.execute("UPDATE directory_activity SET stats_at=NULL,wins=NULL,results=NULL")
         self.assertEqual(self.read('activity',role='driver',id='7'),expected)
+        self.assertEqual(Archive(self.db).person('driver','7',DAY),legacy)
         directory_index.backfill_activity(self.db)
         self.assertEqual(self.read('activity',role='driver',id='7'),expected)
         self.assertIsNotNone(self.db.execute("SELECT stats_at FROM directory_activity WHERE role='driver' AND id='7'").fetchone()[0])

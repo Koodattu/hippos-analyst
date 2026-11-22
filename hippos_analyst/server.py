@@ -286,7 +286,16 @@ class Archive:
     def person(self, role, person_id, today, period='', offset=0):
         if period not in ('', 'upcoming', 'history') or not 0 <= offset <= 10_000_000:
             raise ValueError('Invalid page')
-        self.prepare_people(role)
+        if role not in ('driver','trainer'):
+            raise ValueError('Invalid role')
+        if person_id in ('','0'):
+            raise LookupError('Person not found')
+        names = self.person_names(scoped=True)
+        self.db.create_function('person_name', 2, names.resolve, deterministic=True)
+        summary, person = browse.activity_summary(self, role, person_id, today, names)
+        # The legacy route trims the source label before resolving the display name.
+        person['source_name'] = (person['source_name'] or '').strip(' ')
+        person['name'] = names.resolve(person_id,person['source_name'])
         source = f"""WITH source AS (
             SELECT e.*, result_known(e.absent,e.placing,json_extract(e.data,'$.disqualifiedCode')) AS result_known,
                 result_win(e.absent,e.placing,json_extract(e.data,'$.disqualifiedCode')) AS result_win,
@@ -300,29 +309,22 @@ class Archive:
             (date>=? AND NOT result_known) AS upcoming
             FROM source WHERE person_id=?) """
         args = (today, person_id)
-        person = self.db.execute(source + """SELECT person_id AS id,person_name AS name,source_name,fetched_at
-            FROM person_entries ORDER BY fetched_at DESC,date DESC,track,race_number,program_number LIMIT 1""", args).fetchone()
-        if person is None:
-            raise LookupError('Person not found')
-        summary = dict(self.db.execute(source + """SELECT count(*) AS entries,count(DISTINCT horse_id) AS horses,
-            sum(has_result) AS results,sum(result_win) AS wins,
-            sum(upcoming) AS upcoming FROM person_entries""", args).fetchone())
         period = period or ('upcoming' if summary['upcoming'] else 'history')
         total = summary['upcoming'] if period == 'upcoming' else summary['entries'] - summary['upcoming']
         offset = min(offset, max(0, (total - 1) // 30 * 30))
         order = 'ASC' if period == 'upcoming' else 'DESC'
         rows = self.db.execute(source + f"""SELECT p.*,m.city,m.data AS meeting_data FROM person_entries p
-            JOIN meetings m ON m.date=p.date AND m.track=p.track WHERE upcoming=?
+            JOIN meetings m ON m.date=p.date AND m.track=p.track WHERE upcoming=? AND p.date>=?
             ORDER BY p.date {order},p.track,CAST(p.race_number AS INTEGER),p.race_number,
                 CAST(p.program_number AS INTEGER),p.program_number LIMIT 30 OFFSET ?""",
-            (*args, int(period == 'upcoming'), offset))
+            (*args, int(period == 'upcoming'), today if period == 'upcoming' else '', offset))
         starts = []
         for row in rows:
             item = dict(row)
-            item['data'] = self.person_names().entry(json.loads(item['data']))
+            item['data'] = names.entry(json.loads(item['data']))
             item['meeting_data'] = json.loads(item['meeting_data'])
             starts.append(item)
-        return {'person': {**dict(person), 'role': role}, 'summary': summary, 'starts': starts,
+        return {'person': person, 'summary': summary, 'starts': starts,
                 'photo': self.photo(role, person_id),
                 'period': period, 'total': total, 'offset': offset, 'limit': 30}
 

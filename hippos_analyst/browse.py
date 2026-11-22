@@ -47,7 +47,8 @@ def followed_activity(archive, params, today):
         raise ValueError('Too many followed profiles')
     if not groups:
         return []
-    names = archive.person_names()
+    # Broad watchlists can include hundreds of other drivers and trainers.
+    names = archive.person_names(scoped=len(groups) <= 5)
     db = archive.db
     for horse in db.execute('SELECT id,name FROM horses WHERE id IN (SELECT value FROM json_each(?))',
                             (json.dumps(list(horses)),)):
@@ -234,21 +235,13 @@ def directory(archive, kind, params):
     return result
 
 
-def activity(archive, params, limit=30):
-    prepare(archive)
-    offset, query, today = options(params)
-    names = archive.person_names(scoped=params.get('sort') not in ('driver','trainer'))
-    archive.db.create_function('person_name', 2, names.resolve, deterministic=True)
-    source, args = visible(archive), []
-    role, identity = params.get('role', 'horse'), params.get('id', '')
-    if not identity or role not in ('horse', 'driver', 'trainer'):
-        raise ValueError('Invalid activity identity')
-    if role == 'horse':
-        condition = 'horse_id=?'
-        if archive.db.execute('SELECT 1 FROM horses WHERE id=?', (identity,)).fetchone() is None:
-            raise LookupError('Horse not found')
-    else:
-        condition = f"CAST(json_extract(v.data,'$.{role}Id') AS TEXT)=?"
+def activity_condition(role):
+    return 'horse_id=?' if role == 'horse' else f"CAST(json_extract(v.data,'$.{role}Id') AS TEXT)=?"
+
+
+def activity_summary(archive, role, identity, today, names):
+    source = visible(archive)
+    condition = activity_condition(role)
     totals = archive.db.execute("""SELECT entries,horses,results,wins,source_name,fetched_at
         FROM directory_activity WHERE role=? AND id=? AND stats_at=fetched_at""", (role,identity)).fetchone()
     if totals:
@@ -274,6 +267,22 @@ def activity(archive, params, limit=30):
                 LIMIT 1""", (identity,)).fetchone()
         person = dict(id=identity,role=role,name=names.resolve(identity,source_name),
                       source_name=source_name,fetched_at=fetched_at)
+    return summary, person
+
+
+def activity(archive, params, limit=30):
+    prepare(archive)
+    offset, query, today = options(params)
+    role, identity = params.get('role', 'horse'), params.get('id', '')
+    if not identity or role not in ('horse', 'driver', 'trainer'):
+        raise ValueError('Invalid activity identity')
+    if role == 'horse' and archive.db.execute('SELECT 1 FROM horses WHERE id=?', (identity,)).fetchone() is None:
+        raise LookupError('Horse not found')
+    names = archive.person_names(scoped=params.get('sort') not in ('driver','trainer'))
+    archive.db.create_function('person_name', 2, names.resolve, deterministic=True)
+    summary, person = activity_summary(archive, role, identity, today, names)
+    source, args = visible(archive), []
+    condition = activity_condition(role)
     source += f""", scoped AS (SELECT v.*,m.city,m.data AS meeting_data,
         r.data AS race_data,json_extract(v.data,'$.horseName') AS horse_name,
         person_name(CAST(json_extract(v.data,'$.driverId') AS TEXT),json_extract(v.data,'$.driverName')) AS driver_name,
