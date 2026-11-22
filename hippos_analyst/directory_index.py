@@ -75,6 +75,7 @@ def merge_field(db, key, records, now, *, new):
     for runner in sorted(records, key=lambda r: str(r['programNumber'])):
         horse = str(runner['horseId'])
         known = race_results.has_result(runner)
+        won = race_results.winner(runner)
         for role in ('horse','driver','trainer'):
             raw_id = runner.get(role+'Id')
             if raw_id is None or role != 'horse' and str(raw_id) in ('','0'):
@@ -82,11 +83,13 @@ def merge_field(db, key, records, now, *, new):
             identity = str(raw_id)
             group = groups.setdefault((role,identity), {
                 'name': None if role == 'horse' else str(runner.get(role+'Name') or '').strip(' '),
-                'entries': 0, 'horses': set(), 'settled': False, 'open': False})
+                'source_name': None if role == 'horse' else runner.get(role+'Name'),
+                'entries': 0, 'horses': set(), 'results': 0, 'wins': 0, 'open': False})
             group['entries'] += 1
             if new and role != 'horse' and (role,identity,horse) not in prior_pairs:
                 group['horses'].add(horse)
-            group['settled'] |= known
+            group['results'] += known
+            group['wins'] += won
             group['open'] |= not known
     # For out-of-order or tied timestamps use the full deterministic name ordering.
     for role in ('horse','driver','trainer'):
@@ -96,19 +99,23 @@ def merge_field(db, key, records, now, *, new):
                 (role,json.dumps(ids),now)).fetchone():
             return False
     if not new:
-        db.executemany("UPDATE directory_activity SET name=?,fetched_at=? WHERE role=? AND id=?",
-                       ((g['name'],now,*key) for key,g in groups.items()))
+        db.executemany("""UPDATE directory_activity SET name=?,source_name=?,fetched_at=?,
+            stats_at=CASE WHEN stats_at=fetched_at THEN ? END WHERE role=? AND id=?""",
+            ((g['name'],g['source_name'],now,now,*key) for key,g in groups.items()))
         return True
-    db.executemany("""INSERT INTO directory_activity(role,id,name,entries,horses,fetched_at,last_entry,last_result,open_dates)
-        VALUES(?,?,?,?,?,?,?,?,?) ON CONFLICT(role,id) DO UPDATE SET
+    db.executemany("""INSERT INTO directory_activity(role,id,name,entries,horses,fetched_at,last_entry,last_result,open_dates,
+        results,wins,source_name,stats_at) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?) ON CONFLICT(role,id) DO UPDATE SET
         name=excluded.name,entries=entries+excluded.entries,horses=horses+excluded.horses,
+        results=results+excluded.results,wins=wins+excluded.wins,source_name=excluded.source_name,
+        stats_at=CASE WHEN stats_at=fetched_at THEN excluded.fetched_at END,
         fetched_at=excluded.fetched_at,last_entry=max(last_entry,excluded.last_entry),
         last_result=nullif(max(coalesce(last_result,''),coalesce(excluded.last_result,'')),''),
         open_dates=CASE WHEN excluded.open_dates='[]' OR EXISTS
             (SELECT 1 FROM json_each(directory_activity.open_dates) WHERE value=excluded.last_entry)
             THEN open_dates ELSE json_insert(open_dates,'$[#]',excluded.last_entry) END""",
         ((role,identity,g['name'],g['entries'],None if role=='horse' else len(g['horses']),now,day,
-          day if g['settled'] else None,json.dumps([day] if g['open'] else []))
+          day if g['results'] else None,json.dumps([day] if g['open'] else []),
+          g['results'],g['wins'],g['source_name'],now)
          for (role,identity),g in groups.items()))
     return True
 
@@ -134,10 +141,14 @@ def refresh(db, fields=None):
         name = 'NULL' if role == 'horse' else f"""latest_name(trim(coalesce(json_extract(data,'$.{role}Name'),'')),
                     fetched_at,date,track,race_number,program_number)"""
         horses = 'NULL' if role == 'horse' else 'count(DISTINCT horse_id)'
+        source_name = 'NULL' if role == 'horse' else f"""latest_name(json_extract(data,'$.{role}Name'),
+                    fetched_at,date,track,race_number,program_number)"""
         db.execute(f"""INSERT INTO directory_activity(role,id,name,entries,horses,fetched_at,last_entry,
-                    last_result,open_dates)
+                    last_result,open_dates,results,wins,source_name,stats_at)
             SELECT :role,{identity},{name},count(*),{horses},max(fetched_at),max(date),
-                   max(date) FILTER (WHERE {known}), json_group_array(DISTINCT date) FILTER (WHERE NOT {known})
+                   max(date) FILTER (WHERE {known}), json_group_array(DISTINCT date) FILTER (WHERE NOT {known}),
+                   sum({known}),sum(result_win(absent,placing,json_extract(data,'$.disqualifiedCode'))),
+                   {source_name},max(fetched_at)
             FROM entries INDEXED BY {index} WHERE {where} GROUP BY {identity}""", args)
 
 
@@ -168,4 +179,18 @@ def initialize(db):
     db.create_aggregate('latest_name', 6, LatestName)
     with db:
         db.execute("BEGIN IMMEDIATE")
+        if 'stats_at' not in {r[1] for r in db.execute('PRAGMA table_info(directory_activity)')}:
+            for column in ('results INTEGER','wins INTEGER','source_name TEXT','stats_at REAL'):
+                db.execute('ALTER TABLE directory_activity ADD COLUMN ' + column)
+        db.execute("""CREATE INDEX IF NOT EXISTS directory_stats_pending ON directory_activity(entries DESC)
+            WHERE role IN ('driver','trainer') AND stats_at IS NOT fetched_at""")
         catch_up(db)
+
+
+def backfill_activity(db):
+    # Prioritize the profiles with the most expensive historical scans. Limit
+    # each write transaction and let readers use the original query in the interim.
+    pending = db.execute("""SELECT role,id FROM directory_activity
+        WHERE role IN ('driver','trainer') AND stats_at IS NOT fetched_at ORDER BY entries DESC LIMIT 4""")
+    refresh(db, [(None, identity, None) if role=='driver' else (None, None, identity)
+                 for role,identity in pending])

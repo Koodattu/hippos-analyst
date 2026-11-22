@@ -141,6 +141,17 @@ class MaintenanceTests(unittest.TestCase):
         self.assertEqual(self.db.execute('SELECT count(*) FROM requests').fetchone()[0],count+1)
         self.assertEqual(self.db.execute('SELECT paused_until FROM control').fetchone()[0],self.clock()+180)
 
+    def test_paced_race_day_refresh_window_and_small_budget(self):
+        day = self.today
+        self.db.execute("INSERT INTO meetings(date,track,data,fetched_at) VALUES(?,'T','{}',0)", (day,))
+        self.db.execute("INSERT INTO calendar_tracks VALUES(?,'T','14:00','T')", (day,))
+        self.db.execute("""INSERT INTO races(date,track,number,data,fetched_at)
+            VALUES(?,'T','1','{"plannedTime":"14:00"}',0)""", (day,))
+        start = maintenance.scheduled_at({'date':day,'plannedTime':'14:00'})
+        for offset, seconds in ((-1801,3600),(-1800,600),(5400,600),(5401,3600)):
+            self.assertEqual(maintenance.race_day_refresh(self.db,day,start+offset,10000),seconds)
+        self.assertEqual(maintenance.race_day_refresh(self.db,day,start,100),3600)
+
     def test_recent_refresh_cadence_leaves_old_history_alone(self):
         dates=['2026-10-20','2026-10-22','2026-10-25','2026-10-26','2026-10-27']
         for day in dates:self.calendar(day,True)

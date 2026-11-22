@@ -138,6 +138,18 @@ class BrowseTests(unittest.TestCase):
         self.assertEqual(horses['total'],35)
         self.assertEqual(horses['rows'][0]['id'],'35')
 
+    def test_legacy_activity_totals_backfill_preserves_results_and_names(self):
+        from hippos_analyst import directory_index
+        self.save('runners', [dict(self.runner,driverId='7',driverName=' J Korpi '),
+                              dict(self.runner,horseId='22',programNumber='2',driverId='7',
+                                   driverName='J Korpi',absent=True)])
+        expected = self.read('activity',role='driver',id='7')
+        self.db.execute("UPDATE directory_activity SET stats_at=NULL,wins=NULL,results=NULL")
+        self.assertEqual(self.read('activity',role='driver',id='7'),expected)
+        directory_index.backfill_activity(self.db)
+        self.assertEqual(self.read('activity',role='driver',id='7'),expected)
+        self.assertIsNotNone(self.db.execute("SELECT stats_at FROM directory_activity WHERE role='driver' AND id='7'").fetchone()[0])
+
     def test_preview_is_bounded_and_excludes_selected_day(self):
         self.save('runners',[self.runner])
         for n in range(1,8):

@@ -27,11 +27,17 @@ def run(database, *, continuous=False, delay=30, daily_budget=200, pace_budget=F
                 emit(f'Maintenance started for Helsinki date {today}')
                 outcome = maintenance.run(db, today, delay=delay, daily_budget=daily_budget,
                                           clock=clock, sleep=sleep, fetch=fetch, emit=emit, pace_budget=pace_budget)
-                integrity = db.execute('PRAGMA quick_check').fetchone()[0]
-                if integrity != 'ok' or db.execute('PRAGMA foreign_key_check').fetchone():
-                    raise RuntimeError('SQLite integrity check failed')
+                last_check = db.execute("SELECT value FROM maintenance_state WHERE name='integrity_checked_at'").fetchone()
+                checked_at = float(last_check[0]) if last_check else None
+                if not continuous or checked_at is None or checked_at // 86400 != clock() // 86400:
+                    if db.execute('PRAGMA quick_check').fetchone()[0] != 'ok' or db.execute('PRAGMA foreign_key_check').fetchone():
+                        raise RuntimeError('SQLite integrity check failed')
+                    checked_at = clock()
+                    with db:
+                        db.execute("INSERT OR REPLACE INTO maintenance_state VALUES('integrity_checked_at',?)",
+                                   (str(checked_at),))
                 status = store.status(db)
-                status.update(outcome=outcome, integrity=integrity, pid=os.getpid(),
+                status.update(outcome=outcome, integrity='ok', integrity_checked_at=checked_at, pid=os.getpid(),
                               continuous=continuous, delay=delay, daily_budget=daily_budget,
                               finished_at=datetime.fromtimestamp(clock(), timezone.utc).isoformat())
                 target = Path(database).with_suffix('.background.json')

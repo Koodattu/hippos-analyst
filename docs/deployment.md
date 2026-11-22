@@ -86,6 +86,13 @@ spaces attempts at least 8.64 seconds apart, including after restart. Refresh
 jobs run first in each maintenance pass. The shared ledger still counts retries
 and manual requests toward the hard cap. Previously spent attempts can delay
 the next slot.
+On race day, the collector targets ten-minute refreshes from 30 minutes before
+the first scheduled start until 90 minutes after the last. It lengthens that
+interval on large cards or small budgets. Outside that window today's target
+is hourly.
+Continuous collection runs SQLite's full-archive quick and foreign-key checks
+once per UTC day. The worker status records the time of the last successful
+check. A one-off maintenance run still performs both checks.
 
 ```sh
 docker compose up -d --no-build collector

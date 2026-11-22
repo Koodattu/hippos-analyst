@@ -5,7 +5,8 @@ import json
 import time
 from datetime import date, timedelta
 
-from . import api, collector, store
+from . import api, collector, directory_index, store
+from .prediction_features import scheduled_at
 
 PROFILE_ROOTS_PER_DAY = 100
 PROFILE_SEED_BATCH = 10
@@ -45,7 +46,18 @@ def seed_history(db):
         month = (month-timedelta(days=1)).replace(day=1)
 
 
-def prepare(db, today, now):
+def race_day_refresh(db, today, now, daily_budget):
+    fields = db.execute("""SELECT json_extract(data,'$.plannedTime') FROM races
+        JOIN calendar_tracks USING(date,track) WHERE date=?""", (today,))
+    times = (scheduled_at({'date':today,'plannedTime':planned}) for (planned,) in fields)
+    starts = [stamp for stamp in times if stamp is not None]
+    if starts and min(starts)-1800 <= now <= max(starts)+5400:
+        # Keep room for tomorrow, recent results and historical work even on busy days.
+        return min(3600, max(600, (len(starts)+2)*2*86400 / daily_budget))
+    return 3600
+
+
+def prepare(db, today, now, *, paced_budget=None):
     """Offline planning, called inside the shared worker lock and transaction."""
     today = date.fromisoformat(api.iso_date(today))
     state = db.execute('SELECT * FROM control').fetchone()
@@ -62,6 +74,8 @@ def prepare(db, today, now):
         day = (today+timedelta(days=offset)).isoformat()
         priority = 10+abs(offset)
         interval = refresh_interval(offset)
+        if offset == 0 and paced_budget:
+            interval = race_day_refresh(db,day,now,paced_budget)
         refresh += store.enqueue_refresh(db,api.calendar_path(day),'calendar',{'date':day},priority,now,interval)
         children = db.execute("SELECT path,kind,context FROM jobs WHERE kind IN ('races','runners') "
                               "AND json_extract(context,'$.date')=?", (day,)).fetchall()
@@ -102,7 +116,9 @@ def run(db, today, *, max_requests=40, delay=30, daily_budget=200, pace_budget=F
         emit('Combined daily budget reached; no work scheduled.')
         return 'budget'
     with db:
-        plan = prepare(db,today,now)
+        plan = prepare(db,today,now,paced_budget=daily_budget if pace_budget else None)
+    with db:
+        directory_index.backfill_activity(db)
     emit(json.dumps(plan))
     if plan['history'].get('reason') == 'twelve_empty_months':
         with db:

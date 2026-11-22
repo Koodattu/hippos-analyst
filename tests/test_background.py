@@ -29,6 +29,7 @@ class BackgroundTests(unittest.TestCase):
         for i, actual in enumerate(calls):
             self.assertAlmostEqual(actual, midnight + (7502 + i) * 8.64, places=4)
         self.assertEqual(len(calls), 4)
+
     def setUp(self):
         self.temp = tempfile.TemporaryDirectory()
         self.path = Path(self.temp.name) / 'archive.sqlite3'
@@ -39,6 +40,19 @@ class BackgroundTests(unittest.TestCase):
     def tearDown(self):
         self.db.close()
         self.temp.cleanup()
+
+    def test_continuous_integrity_checkpoint_survives_restart_and_expires_each_utc_day(self):
+        with self.db:
+            collector.pause(self.db, 'Operator pause')
+        def checked_at():
+            self.assertEqual(background.run(self.path, continuous=True, clock=self.clock,
+                                            sleep=self.clock.sleep, emit=lambda _: None), 'paused')
+            return json.loads(self.path.with_suffix('.background.json').read_text())['integrity_checked_at']
+        first = checked_at()
+        self.clock.now += 60
+        self.assertEqual(checked_at(), first)
+        self.clock.now += 86400
+        self.assertEqual(checked_at(), self.clock.now)
 
     def run_worker(self, fetch=None):
         return background.run(self.path, clock=self.clock, sleep=self.clock.sleep,

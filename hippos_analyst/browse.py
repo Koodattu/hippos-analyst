@@ -249,19 +249,31 @@ def activity(archive, params, limit=30):
             raise LookupError('Horse not found')
     else:
         condition = f"CAST(json_extract(v.data,'$.{role}Id') AS TEXT)=?"
-    summary = dict(archive.db.execute(source + f"""SELECT count(*) AS entries,count(DISTINCT horse_id) AS horses,
-        coalesce(sum(result_known),0) AS results,coalesce(sum(result_win),0) AS wins,
-        coalesce(sum(date>=? AND NOT result_known),0) AS upcoming FROM visible v WHERE {condition}""",
-        (today,identity)).fetchone())
+    totals = archive.db.execute("""SELECT entries,horses,results,wins,source_name,fetched_at
+        FROM directory_activity WHERE role=? AND id=? AND stats_at=fetched_at""", (role,identity)).fetchone()
+    if totals:
+        summary = {key:totals[key] for key in ('entries','horses','results','wins')}
+        if role == 'horse':
+            summary['horses'] = 1
+        summary['upcoming'] = archive.db.execute(source + f"""SELECT count(*) FROM visible v
+            WHERE {condition} AND date>=? AND NOT result_known""", (identity,today)).fetchone()[0]
+    else:
+        summary = dict(archive.db.execute(source + f"""SELECT count(*) AS entries,count(DISTINCT horse_id) AS horses,
+            coalesce(sum(result_known),0) AS results,coalesce(sum(result_win),0) AS wins,
+            coalesce(sum(date>=? AND NOT result_known),0) AS upcoming FROM visible v WHERE {condition}""",
+            (today,identity)).fetchone())
     person = None
     if role != 'horse':
         if not summary['entries']:
             raise LookupError('Person not found')
-        latest = archive.db.execute(source + f"""SELECT json_extract(data,'$.{role}Name'),fetched_at
-            FROM visible v WHERE {condition} ORDER BY fetched_at DESC,date DESC,track,race_number,program_number
-            LIMIT 1""", (identity,)).fetchone()
-        person = dict(id=identity,role=role,name=names.resolve(identity,latest[0]),
-                      source_name=latest[0],fetched_at=latest[1])
+        if totals:
+            source_name, fetched_at = totals['source_name'], totals['fetched_at']
+        else:
+            source_name, fetched_at = archive.db.execute(source + f"""SELECT json_extract(data,'$.{role}Name'),fetched_at
+                FROM visible v WHERE {condition} ORDER BY fetched_at DESC,date DESC,track,race_number,program_number
+                LIMIT 1""", (identity,)).fetchone()
+        person = dict(id=identity,role=role,name=names.resolve(identity,source_name),
+                      source_name=source_name,fetched_at=fetched_at)
     source += f""", scoped AS (SELECT v.*,m.city,m.data AS meeting_data,
         r.data AS race_data,json_extract(v.data,'$.horseName') AS horse_name,
         person_name(CAST(json_extract(v.data,'$.driverId') AS TEXT),json_extract(v.data,'$.driverName')) AS driver_name,
