@@ -12,6 +12,23 @@ from test_collector import Clock, response
 
 
 class BackgroundTests(unittest.TestCase):
+    def test_paced_worker_respects_spent_slots_and_continues_into_race_day(self):
+        midnight = self.clock.now - self.clock.now % 86400
+        self.clock.now = midnight + 18 * 3600
+        with self.db:
+            self.db.executemany("INSERT INTO requests(path,started_at) VALUES('earlier',?)",
+                                [(midnight,)] * 7502)
+        calls = []
+        def fetch(path):
+            calls.append(self.clock())
+            return api.Response(403) if len(calls) == 4 else response([])
+        result = background.run(self.path, continuous=True, delay=1, daily_budget=10000,
+                                pace_budget=True, clock=self.clock, sleep=self.clock.sleep,
+                                emit=lambda _: None, fetch=fetch)
+        self.assertEqual(result, 'paused')
+        for i, actual in enumerate(calls):
+            self.assertAlmostEqual(actual, midnight + (7502 + i) * 8.64, places=4)
+        self.assertEqual(len(calls), 4)
     def setUp(self):
         self.temp = tempfile.TemporaryDirectory()
         self.path = Path(self.temp.name) / 'archive.sqlite3'

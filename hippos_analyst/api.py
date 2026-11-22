@@ -185,6 +185,7 @@ def normalize(kind, payload, context):
     day = context["date"]
     output = []
     seen = set()
+    scratched = {}
     for item in payload:
         if not isinstance(item, dict):
             raise SchemaError("Expected record objects")
@@ -245,12 +246,16 @@ def normalize(kind, payload, context):
             if not isinstance(record.get("horseName"), str):
                 raise SchemaError("Missing participant number or horse name")
             record["programNumber"] = str(record["programNumber"])
-            if record["programNumber"] in seen:
-                raise SchemaError("Duplicate participant number")
-            seen.add(record["programNumber"])
             for key in ("driverId", "trainerId", "originalDriverId"):
                 if record.get(key) is not None:
                     record[key] = str(record[key])
+            if record["programNumber"] in seen:
+                if record == scratched.get(record["programNumber"]):
+                    continue
+                raise SchemaError("Duplicate participant number")
+            seen.add(record["programNumber"])
+            if record['absent'] is True:
+                scratched[record["programNumber"]] = record
             output.append(record)
         else:
             raise SchemaError("Unknown job kind")

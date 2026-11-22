@@ -81,6 +81,11 @@ Start exactly one collector after retiring the old one. Set `HIPPOS_DELAY` and
 `HIPPOS_DAILY_BUDGET` in the checkout's ignored `.env` to select approved limits.
 Compose defaults to 30 seconds and 200 attempts per UTC day. This is lower
 than the workstation's documented 1 second and 10,000 attempts per day.
+The deployed collector uses `--pace-budget`. At 10,000 attempts per UTC day it
+spaces attempts at least 8.64 seconds apart, including after restart. Refresh
+jobs run first in each maintenance pass. The shared ledger still counts retries
+and manual requests toward the hard cap. Previously spent attempts can delay
+the next slot.
 
 ```sh
 docker compose up -d --no-build collector
@@ -100,6 +105,9 @@ docker compose exec web python -m hippos_analyst --db /data/hippos.sqlite3 pause
 For fresh forecasts, set `HIPPOS_MODEL` in `.env` to the restored directory's
 **basename** under `/data/models`. The default is `active`. Existing stored
 predictions can be displayed with the predictor stopped.
+An unchanged field, runner probabilities and history counts retain the original
+forecast. A small confirmation record tracks the latest check and field
+observation for freshness. Scoring uses the original creation time.
 
 ```sh
 docker compose build predictor

@@ -82,7 +82,7 @@ def prepare(db, today, now):
     return {'refresh':refresh,'profiles':profiles,'history':history}
 
 
-def run(db, today, *, max_requests=40, delay=30, daily_budget=200,
+def run(db, today, *, max_requests=40, delay=30, daily_budget=200, pace_budget=False,
         clock=time.time, sleep=time.sleep, fetch=None, emit=print):
     """Caller holds worker_lock throughout all phases. No background child worker."""
     if not 4 <= max_requests <= 40:
@@ -115,7 +115,7 @@ def run(db, today, *, max_requests=40, delay=30, daily_budget=200,
     for queue, limit in [('refresh',refresh),('profiles',profiles),('history',max_requests-refresh-profiles)]:
         emit(f'Processing {queue}: at most {limit} requests')
         result = collector.run(db,queue=queue,max_requests=limit,delay=delay,daily_budget=daily_budget,
-                               clock=clock,sleep=sleep,fetch=fetch,emit=emit)
+                               clock=clock,sleep=sleep,fetch=fetch,emit=emit,pace_budget=pace_budget)
         if result not in ('idle','limit'):
             return result
     return 'limit'

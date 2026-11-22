@@ -4,7 +4,6 @@ import json
 import re
 
 from . import api
-from .directory_index import LatestName
 
 
 def numeric(value):
@@ -238,7 +237,8 @@ def directory(archive, kind, params):
 def activity(archive, params, limit=30):
     prepare(archive)
     offset, query, today = options(params)
-    archive.db.create_function('person_name', 2, archive.person_names().resolve, deterministic=True)
+    names = archive.person_names(scoped=params.get('sort') not in ('driver','trainer'))
+    archive.db.create_function('person_name', 2, names.resolve, deterministic=True)
     source, args = visible(archive), []
     role, identity = params.get('role', 'horse'), params.get('id', '')
     if not identity or role not in ('horse', 'driver', 'trainer'):
@@ -249,6 +249,19 @@ def activity(archive, params, limit=30):
             raise LookupError('Horse not found')
     else:
         condition = f"CAST(json_extract(v.data,'$.{role}Id') AS TEXT)=?"
+    summary = dict(archive.db.execute(source + f"""SELECT count(*) AS entries,count(DISTINCT horse_id) AS horses,
+        coalesce(sum(result_known),0) AS results,coalesce(sum(result_win),0) AS wins,
+        coalesce(sum(date>=? AND NOT result_known),0) AS upcoming FROM visible v WHERE {condition}""",
+        (today,identity)).fetchone())
+    person = None
+    if role != 'horse':
+        if not summary['entries']:
+            raise LookupError('Person not found')
+        latest = archive.db.execute(source + f"""SELECT json_extract(data,'$.{role}Name'),fetched_at
+            FROM visible v WHERE {condition} ORDER BY fetched_at DESC,date DESC,track,race_number,program_number
+            LIMIT 1""", (identity,)).fetchone()
+        person = dict(id=identity,role=role,name=names.resolve(identity,latest[0]),
+                      source_name=latest[0],fetched_at=latest[1])
     source += f""", scoped AS (SELECT v.*,m.city,m.data AS meeting_data,
         r.data AS race_data,json_extract(v.data,'$.horseName') AS horse_name,
         person_name(CAST(json_extract(v.data,'$.driverId') AS TEXT),json_extract(v.data,'$.driverName')) AS driver_name,
@@ -259,21 +272,6 @@ def activity(archive, params, limit=30):
         FROM visible v JOIN meetings m ON m.date=v.date AND m.track=v.track
         JOIN races r ON r.date=v.date AND r.track=v.track AND r.number=v.race_number WHERE {condition}) """
     args += [today, identity]
-    identity_columns = ''
-    if role != 'horse':
-        archive.db.create_aggregate('latest_name',6,LatestName)
-        identity_columns = f""",latest_name({role}_name,fetched_at,date,track,race_number,program_number) AS name,
-            latest_name(json_extract(data,'$.{role}Name'),fetched_at,date,track,race_number,program_number) AS source_name,
-            max(fetched_at) AS fetched_at"""
-    summary = dict(archive.db.execute(source + """SELECT count(*) AS entries,count(DISTINCT horse_id) AS horses,
-        coalesce(sum(has_result),0) AS results,
-        coalesce(sum(result_win),0) AS wins,
-        coalesce(sum(upcoming),0) AS upcoming""" + identity_columns + ' FROM scoped', args).fetchone())
-    if role != 'horse' and not summary['entries']:
-        raise LookupError('Person not found')
-    person = None
-    if role != 'horse':
-        person = {'name':summary.pop('name'), 'source_name':summary.pop('source_name'), 'fetched_at':summary.pop('fetched_at'), 'id':identity, 'role':role}
     period = params.get('period') or ('upcoming' if summary['upcoming'] else 'history')
     if period not in ('upcoming', 'history', 'horses'):
         raise ValueError('Invalid period')
@@ -291,6 +289,9 @@ def activity(archive, params, limit=30):
     else:
         source += ', filtered AS (SELECT * FROM scoped WHERE upcoming=? AND instr(fold(horse_name),?)>0'
         args += [int(period == 'upcoming'), query.casefold()]
+        if period == 'upcoming':
+            source += ' AND date>=?'
+            args.append(today)
         if params.get('before'):
             source += ' AND date<?'
             args.append(api.iso_date(params['before']))
@@ -310,7 +311,7 @@ def activity(archive, params, limit=30):
         for row in result['rows']:
             for key in ('data', 'meeting_data', 'race_data'):
                 row[key] = json.loads(row[key])
-            row['data'] = archive.person_names().entry(row['data'])
+            row['data'] = names.entry(row['data'])
     return {**result, 'period': period, 'summary': summary, 'person': person,
             'photo': archive.photo(role, identity)}
 

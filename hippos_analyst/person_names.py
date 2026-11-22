@@ -30,19 +30,23 @@ def compatible(short, full):
 
 class PersonNames:
     @classmethod
-    def from_archive(cls, db, entry_filter):
+    def from_archive(cls, db, entry_filter, identities=None):
         # The indexes cover the name fields. Only distinct names cross
         # into Python, even when a driver has appeared in thousands of races.
+        args = () if identities is None else (json.dumps(sorted(identities)),)
+        def scope(role):
+            return (f" AND CAST(json_extract(data,'$.{role}Id') AS TEXT) IN (SELECT value FROM json_each(?))"
+                    if identities is not None else '')
         drivers = (dict(driverId=row[0], driverFirstName=row[1], driverLastName=row[2])
                    for row in db.execute(f"""SELECT DISTINCT CAST(json_extract(data,'$.driverId') AS TEXT),
                        nullif(json_extract(data,'$.driverFirstName'),''),nullif(json_extract(data,'$.driverLastName'),'')
-                       FROM entries INDEXED BY entries_driver_names WHERE {entry_filter}"""))
+                       FROM entries INDEXED BY entries_driver_names WHERE {entry_filter}{scope('driver')}""", args))
         trainers = (dict(trainerId=row[0], trainerName=row[1])
                     for row in db.execute(f"""SELECT DISTINCT CAST(json_extract(data,'$.trainerId') AS TEXT),
                         nullif(json_extract(data,'$.trainerName'),'') FROM entries INDEXED BY entries_trainer_names
-                        WHERE {entry_filter}"""))
+                        WHERE {entry_filter}{scope('trainer')}""", args))
         profiles = (json.loads(row[0]) for row in db.execute(
-            "SELECT data FROM horse_profiles WHERE json_extract(data,'$.trainerId') IS NOT NULL"))
+            "SELECT data FROM horse_profiles WHERE json_extract(data,'$.trainerId') IS NOT NULL" + scope('trainer'), args))
         return cls(chain(drivers, trainers, profiles))
 
     def __init__(self, entries):
@@ -75,3 +79,20 @@ class PersonNames:
                 entry[f'{role}SourceName'] = original
                 entry[f'{role}Name'] = name
         return entry
+
+
+class ScopedNames(PersonNames):
+    """Use the indexed evidence for people encountered in this request's snapshot."""
+    def __init__(self, db, entry_filter):
+        super().__init__(())
+        self.db = db
+        self.entry_filter = entry_filter
+        self.loaded = set()
+
+    def resolve(self, identity, original):
+        if identity is not None and str(identity) not in ('', '0'):
+            key = str(identity)
+            if key not in self.loaded:
+                self.names.update(PersonNames.from_archive(self.db, self.entry_filter, {key}).names)
+                self.loaded.add(key)
+        return super().resolve(identity, original)

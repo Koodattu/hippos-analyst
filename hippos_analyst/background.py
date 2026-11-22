@@ -13,7 +13,7 @@ from zoneinfo import ZoneInfo
 from . import collector, maintenance, store
 
 
-def run(database, *, continuous=False, delay=30, daily_budget=200,
+def run(database, *, continuous=False, delay=30, daily_budget=200, pace_budget=False,
         clock=time.time, sleep=time.sleep, fetch=None, emit=print):
     """Use the same lock/ledger as manual collection; never clear stops or jobs."""
     if not collector.MIN_HIPPOS_DELAY <= delay <= 3600 or not 1 <= daily_budget <= 10000:
@@ -26,7 +26,7 @@ def run(database, *, continuous=False, delay=30, daily_budget=200,
                 before = db.execute('SELECT count(*) FROM requests').fetchone()[0]
                 emit(f'Maintenance started for Helsinki date {today}')
                 outcome = maintenance.run(db, today, delay=delay, daily_budget=daily_budget,
-                                          clock=clock, sleep=sleep, fetch=fetch, emit=emit)
+                                          clock=clock, sleep=sleep, fetch=fetch, emit=emit, pace_budget=pace_budget)
                 integrity = db.execute('PRAGMA quick_check').fetchone()[0]
                 if integrity != 'ok' or db.execute('PRAGMA foreign_key_check').fetchone():
                     raise RuntimeError('SQLite integrity check failed')
@@ -76,6 +76,7 @@ def main(argv=None):
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--db', default='data/hippos.sqlite3')
     parser.add_argument('--continuous', action='store_true', help='Keep collecting until stopped; no OS schedule')
+    parser.add_argument('--pace-budget', action='store_true', help='Distribute the shared request allowance across the UTC day')
     parser.add_argument('--delay', type=float, default=30)
     parser.add_argument('--daily-budget', type=int, default=200)
     args = parser.parse_args(argv)
@@ -93,7 +94,7 @@ def main(argv=None):
         logger.info('Worker PID %s; continuous=%s; delay=%s; daily_budget=%s',
                     os.getpid(), args.continuous, args.delay, args.daily_budget)
         outcome = run(database, continuous=args.continuous, delay=args.delay,
-                      daily_budget=args.daily_budget, emit=logger.info)
+                      daily_budget=args.daily_budget, pace_budget=args.pace_budget, emit=logger.info)
         return 2 if outcome in ('paused', 'retry', 'failed') else 0
     except RuntimeError as exc:
         if str(exc) == 'Another collector is using this database':

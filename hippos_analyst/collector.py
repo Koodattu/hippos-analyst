@@ -62,7 +62,8 @@ def pause(db, reason, until=0):
 
 
 def run(db, *, max_requests=25, delay=15, daily_budget=500,
-        fetch=None, clock=time.time, sleep=time.sleep, emit=print, provider='hippos', queue='all'):
+        fetch=None, clock=time.time, sleep=time.sleep, emit=print, provider='hippos', queue='all',
+        pace_budget=False):
     if provider not in ('hippos', 'toto'):
         raise ValueError('Unknown collection provider')
     if queue not in ('all','refresh','profiles','history') or (provider=='toto' and queue!='all'):
@@ -94,14 +95,25 @@ def run(db, *, max_requests=25, delay=15, daily_budget=500,
         if job is None:
             emit(f"No jobs due; completed {completed} requests in this run.")
             return "idle"
-        wait = control["last_request_at"] + delay - now
+        next_request = control["last_request_at"] + delay
+        if pace_budget:
+            midnight = now - now % 86400
+            used = db.execute('SELECT count(*) FROM requests WHERE started_at>=?', (midnight,)).fetchone()[0]
+            if used >= daily_budget:
+                return 'budget'
+            # Spread a full day's work across UTC slots. On restart, honor both
+            # the ledger and the last request; unused morning slots cannot burst.
+            spacing = 86400 / daily_budget
+            next_request = max(next_request, midnight + used * spacing,
+                               min(midnight + 86400, control["last_request_at"] + spacing))
+        wait = next_request - now
         # Check for a manual stop frequently while waiting.
         while wait > 0:
             sleep(min(wait, 1))
             if db.execute("SELECT paused_reason FROM control WHERE id=1").fetchone()[0]:
                 emit("Paused by operator")
                 return "paused"
-            wait = control["last_request_at"] + delay - clock()
+            wait = next_request - clock()
         now = clock()
         midnight = datetime.fromtimestamp(now, timezone.utc).replace(hour=0, minute=0, second=0, microsecond=0).timestamp()
         with db:

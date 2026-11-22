@@ -159,6 +159,34 @@ class FeatureTests(unittest.TestCase):
 
 
 class PersistenceTests(unittest.TestCase):
+    def test_unchanged_forecasts_refresh_freshness_without_rewriting_evidence(self):
+        with tempfile.TemporaryDirectory() as temp:
+            path = Path(temp) / 'archive.sqlite3'
+            archive, output = store.connect(path), ps.connect(path)
+            g = f.build_features([group()])[0][0]
+            start = f.scheduled_at(g['race'])
+            report = {'splits':{'train':{'end':'2026-06-01'},'calibration':{'end':'2026-07-01'}},'test':{}}
+            try:
+                with output:
+                    g['field_at'] = start - 100000
+                    ps.save(output,'v1',g,[.6,.4],'forecast',1,g['field_at']+1,report)
+                original = output.execute('SELECT body FROM predictions').fetchone()[0]
+                now = start-3000
+                self.assertEqual(ps.read_race(archive,g['race'],g['entries'],now)['status'],'stale')
+                with output:
+                    g['field_at'] = now-100
+                    ps.save(output,'v1',g,[.6,.4],'forecast',4,now,report)
+                    ps.save(output,'v1',g,[.9,.1],'forecast',3,now,report)
+                self.assertEqual(output.execute('SELECT body FROM predictions').fetchall(),[(original,)])
+                self.assertEqual(ps.read_race(archive,g['race'],g['entries'],now)['status'],'ready')
+                with output:
+                    ps.save(output,'v1',g,[.5,.5],'forecast',5,now+5,report)
+                    ps.save(output,'v1',g,[.6,.4],'forecast',6,now+6,report)
+                self.assertEqual(output.execute('SELECT count(*) FROM predictions').fetchone()[0],3)
+                self.assertEqual(output.execute('SELECT count(*) FROM forecast_checks').fetchone()[0],0)
+            finally:
+                output.close()
+                archive.close()
     def test_monte_racecard_reports_monte_evaluation_without_rewriting_prediction(self):
         with tempfile.TemporaryDirectory() as temp:
             path=Path(temp)/'archive.sqlite3'

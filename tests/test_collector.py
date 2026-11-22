@@ -365,6 +365,15 @@ class CollectorTests(unittest.TestCase):
             with self.assertRaises(api.SchemaError):
                 api.normalize("runners", records, context)
 
+    def test_identical_scratches_are_counted_once_but_conflicts_fail(self):
+        context = {"date": DAY, "track": "H", "number": "1"}
+        scratched = dict(RUNNERS[0], absent=True, placing="0")
+        self.assertEqual(api.normalize("runners", [scratched, scratched], context),
+                         api.normalize("runners", [scratched], context))
+        for conflict in (dict(scratched, horseId="2"), dict(scratched, placing="1"), RUNNERS[0]):
+            with self.assertRaisesRegex(api.SchemaError, "Duplicate participant"):
+                api.normalize("runners", [scratched, conflict], context)
+
 
 if __name__ == "__main__":
     unittest.main()

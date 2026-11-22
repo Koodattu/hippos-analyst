@@ -24,6 +24,8 @@ def connect(database):
             signature TEXT NOT NULL,source_request INTEGER NOT NULL,created_at REAL NOT NULL,
             body TEXT NOT NULL,UNIQUE(model_id,date,track,number,mode,signature,source_request));
         CREATE INDEX IF NOT EXISTS predictions_race ON predictions(date,track,number,id DESC);
+        CREATE TABLE IF NOT EXISTS forecast_checks(prediction_id INTEGER PRIMARY KEY,
+            checked_at REAL NOT NULL,field_observed_at REAL NOT NULL,source_request INTEGER NOT NULL);
     ''')
     return db
 
@@ -47,6 +49,23 @@ def save(db, model_id, group, probabilities, mode, source_request, now, report):
             'runners': [{'horse_id': str(e['horseId']), 'number': str(e['programNumber']),
                          'probability': float(p), 'history_count': int(row[7])}
                         for e, p, row in zip(group['starters'], probabilities, group['x'])]}
+    if mode == 'forecast':
+        if not db.in_transaction:
+            db.execute('BEGIN IMMEDIATE')
+        prior = db.execute("""SELECT p.id,p.signature,p.body,coalesce(c.source_request,p.source_request)
+            FROM predictions p LEFT JOIN forecast_checks c ON c.prediction_id=p.id
+            WHERE p.date=? AND p.track=? AND p.number=? AND p.model_id=? AND p.mode='forecast'
+            ORDER BY p.id DESC LIMIT 1""", (*group['key'],model_id)).fetchone()
+        if prior:
+            last_id, last_signature, previous, last_request = prior
+            if source_request <= last_request:
+                return
+            if last_signature == group['signature'] and json.loads(previous)['runners'] == body['runners']:
+                db.execute("""INSERT INTO forecast_checks VALUES(?,?,?,?) ON CONFLICT(prediction_id)
+                    DO UPDATE SET checked_at=excluded.checked_at,field_observed_at=excluded.field_observed_at,
+                    source_request=excluded.source_request""", (last_id,now,group['field_at'],source_request))
+                return
+            db.execute('DELETE FROM forecast_checks WHERE prediction_id=?', (last_id,))
     db.execute('''INSERT OR IGNORE INTO predictions(model_id,date,track,number,mode,signature,
         source_request,created_at,body) VALUES(?,?,?,?,?,?,?,?,?)''',
         (model_id, *group['key'], mode, group['signature'], source_request, now,
@@ -65,10 +84,16 @@ def read_race(archive_db, race, entries, now=None):
     now = time.time() if now is None else now
     try:
         with closing(sqlite3.connect(path.resolve().as_uri()+'?mode=ro', uri=True)) as db:
-            row = db.execute('''SELECT p.signature,p.body,m.report FROM predictions p
+            db.execute('BEGIN')
+            lookup = '''SELECT p.signature,p.body,m.report,p.id FROM predictions p
                 LEFT JOIN models m ON m.id=p.model_id
-                WHERE date=? AND track=? AND number=? ORDER BY (mode='forecast') DESC,p.id DESC LIMIT 1''',
-                (race['date'], str(race['trackCode']), str(race['startNumber']))).fetchone()
+                WHERE date=? AND track=? AND number=? AND mode=? ORDER BY p.id DESC LIMIT 1'''
+            key = (race['date'], str(race['trackCode']), str(race['startNumber']))
+            row = db.execute(lookup, (*key,'forecast')).fetchone() or db.execute(lookup, (*key,'backtest')).fetchone()
+            check = None
+            if row and db.execute("SELECT 1 FROM sqlite_master WHERE name='forecast_checks'").fetchone():
+                check = db.execute('SELECT checked_at,field_observed_at FROM forecast_checks WHERE prediction_id=?',
+                                   (row[3],)).fetchone()
     except sqlite3.Error:
         return {'status': 'unavailable'}
     if not row:
@@ -82,6 +107,7 @@ def read_race(archive_db, race, entries, now=None):
         body['test_metrics'] = report['by_discipline'][kind]
         body['evaluation_discipline'] = kind
     if body['mode'] == 'forecast' and now < (body['scheduled_at'] or now):
-        if now-body['created_at'] > 86400 or now-body['field_observed_at'] > 86400:
+        checked_at, observed_at = check or (body['created_at'], body['field_observed_at'])
+        if now-checked_at > 86400 or now-observed_at > 86400:
             return {'status': 'stale'}
     return {'status': 'ready', **body}

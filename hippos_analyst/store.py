@@ -39,6 +39,7 @@ def connect(path):
             next_attempt REAL NOT NULL DEFAULT 0, last_error TEXT, last_success REAL
         );
         CREATE INDEX IF NOT EXISTS jobs_due ON jobs(status, next_attempt, priority);
+        CREATE INDEX IF NOT EXISTS jobs_calendar_date ON jobs(json_extract(context,'$.date')) WHERE kind='calendar';
         CREATE TABLE IF NOT EXISTS snapshots (
             id INTEGER PRIMARY KEY, path TEXT NOT NULL, sha256 TEXT NOT NULL,
             first_seen REAL NOT NULL, body TEXT NOT NULL, parser_version INTEGER NOT NULL DEFAULT 1,
@@ -50,6 +51,7 @@ def connect(path):
             snapshot_id INTEGER REFERENCES snapshots(id)
         );
         CREATE INDEX IF NOT EXISTS requests_time ON requests(started_at);
+        CREATE INDEX IF NOT EXISTS requests_finished ON requests(finished_at) WHERE outcome='ok';
         CREATE INDEX IF NOT EXISTS requests_path_success ON requests(path, id DESC) WHERE outcome='ok';
         CREATE TABLE IF NOT EXISTS source_fields (
             kind TEXT NOT NULL, name TEXT NOT NULL, retained INTEGER NOT NULL,
@@ -60,6 +62,10 @@ def connect(path):
             canceled INTEGER, data TEXT NOT NULL, fetched_at REAL NOT NULL,
             PRIMARY KEY(date, track)
         );
+        CREATE TABLE IF NOT EXISTS calendar_tracks (
+            date TEXT NOT NULL,track TEXT NOT NULL,start_time TEXT,label TEXT NOT NULL,
+            PRIMARY KEY(date,track)
+        ) WITHOUT ROWID;
         CREATE TABLE IF NOT EXISTS races (
             date TEXT NOT NULL, track TEXT NOT NULL, number TEXT NOT NULL,
             breed TEXT, start_form TEXT, distance TEXT, data TEXT NOT NULL, fetched_at REAL NOT NULL,
@@ -102,6 +108,7 @@ def connect(path):
             role TEXT NOT NULL CHECK(role IN ('owner','breeder')), label TEXT NOT NULL,
             party_key TEXT NOT NULL, PRIMARY KEY(horse_id,role)
         );
+        CREATE INDEX IF NOT EXISTS profiles_trainer ON horse_profiles(CAST(json_extract(data,'$.trainerId') AS TEXT));
         CREATE INDEX IF NOT EXISTS parties_lookup ON horse_parties(role,party_key,horse_id);
         CREATE TABLE IF NOT EXISTS horse_parents (
             horse_id TEXT NOT NULL REFERENCES horse_profiles(horse_id),
@@ -161,6 +168,16 @@ def connect(path):
             db.execute(f"CREATE INDEX {name} ON entries(CAST(json_extract(data,'$.{role}Id') AS TEXT),date,{evidence})")
     from . import tracks
     tracks.initialize(db)
+    with db:
+        db.execute('BEGIN IMMEDIATE')
+        latest = db.execute("SELECT coalesce(max(id),0) FROM requests WHERE outcome='ok' AND path GLOB '/race/search/*'").fetchone()[0]
+        marker = db.execute("SELECT value FROM maintenance_state WHERE name='calendar_tracks'").fetchone()
+        if marker is None or int(marker[0]) != latest:
+            db.execute('DELETE FROM calendar_tracks')
+            db.execute("""INSERT INTO calendar_tracks SELECT m.date,m.track,m.start_time,
+                coalesce(nullif(json_extract(m.data,'$.formattedTrackName'),''),nullif(m.city,''),m.track)
+                """ + directory_index.listed_meetings())
+            db.execute("INSERT OR REPLACE INTO maintenance_state VALUES('calendar_tracks',?)", (str(latest),))
     directory_index.initialize(db)
     report_index.initialize(db)
     return db
@@ -243,6 +260,12 @@ def save_response(db, job, records, request_id, now):
                  record.get("baseDistance"), data, now))
             discover(runners_path(day, track, number), "runners",
                      {"date": day, "track": track, "number": number})
+    if job['kind'] == 'calendar':
+        db.execute('DELETE FROM calendar_tracks WHERE date=?', (day,))
+        db.executemany('INSERT INTO calendar_tracks VALUES(?,?,?,?)',
+                       ((day,r['trackCode'],r.get('startTime'),
+                         r.get('formattedTrackName') or r.get('trackCity') or str(r['trackCode'])) for r in records))
+        db.execute("UPDATE maintenance_state SET value=? WHERE name='calendar_tracks'", (str(request_id),))
     if job["kind"] == "runners":
         # A response is the entire current field. Historical versions remain in snapshots.
         key = (day, context["track"], context["number"])

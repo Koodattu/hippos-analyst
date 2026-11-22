@@ -43,7 +43,7 @@ services:
       web:
         condition: service_healthy
     command: ["python", "-m", "hippos_analyst.background", "--db", "/data/hippos.sqlite3",
-              "--continuous", "--delay", "${HIPPOS_DELAY:-30}", "--daily-budget", "${HIPPOS_DAILY_BUDGET:-200}"]
+              "--continuous", "--pace-budget", "--delay", "${HIPPOS_DELAY:-30}", "--daily-budget", "${HIPPOS_DAILY_BUDGET:-200}"]
 
   predictor:
     <<: *runtime

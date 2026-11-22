@@ -14,7 +14,7 @@ from pathlib import Path
 from urllib.parse import parse_qs
 
 from . import analytics, api, toto, browse, tracks, photos, prediction_store, prediction_results, race_results
-from .person_names import PersonNames
+from .person_names import PersonNames, ScopedNames
 from . import directory_index
 
 WEB = Path(__file__).with_name("web")
@@ -36,6 +36,7 @@ class Archive:
         self.browse_cache = browse_cache
         self.heads = {}
         self._person_names = None
+        self._scoped_names = None
         self._entry_filter = None
 
     def entry_filter(self):
@@ -47,7 +48,11 @@ class Archive:
     def photo(self, kind, entity_id):
         return photos.get(self.db, kind, entity_id)
 
-    def person_names(self):
+    def person_names(self, *, scoped=False):
+        if scoped and self._person_names is None:
+            if self._scoped_names is None:
+                self._scoped_names = ScopedNames(self.db, self.entry_filter())
+            return self._scoped_names
         if self._person_names is None:
             token = (self.db.execute("SELECT max(id) FROM requests WHERE outcome='ok'").fetchone()[0],
                      self.db.total_changes)
@@ -104,23 +109,17 @@ class Archive:
         return result
 
     def meeting_rows(self, start='0001-01-01', end='9999-12-31', track=''):
-        query = 'SELECT m.* FROM meetings m WHERE m.date BETWEEN ? AND ?'
+        query = 'SELECT m.* FROM calendar_tracks c JOIN meetings m USING(date,track) WHERE c.date BETWEEN ? AND ?'
         params = [start, end]
         if track:
             query += ' AND track=?'
             params.append(track)
-        query += """ AND EXISTS (SELECT 1 FROM json_each((SELECT s.body FROM requests q
-            JOIN snapshots s ON s.id=q.snapshot_id WHERE q.path='/race/search/'||m.date||'/'||m.date||'/'
-            AND q.outcome='ok' ORDER BY q.id DESC LIMIT 1)) item
-            WHERE CAST(json_extract(item.value,'$.trackCode') AS TEXT)=m.track)
-            ORDER BY m.date,m.start_time,m.track"""
+        query += ' ORDER BY c.date,c.start_time,c.track'
         return list(self.db.execute(query, params))
 
     def overview(self):
         span = self.db.execute("SELECT min(json_extract(context,'$.date')),max(json_extract(context,'$.date')) FROM jobs WHERE kind='calendar' AND last_success IS NOT NULL").fetchone()
-        meetings = self.db.execute("""
-            SELECT m.track,coalesce(nullif(json_extract(m.data,'$.formattedTrackName'),''),nullif(m.city,''),m.track)
-            """ + directory_index.listed_meetings() + " ORDER BY m.date,m.start_time,m.track")
+        meetings = self.db.execute('SELECT track,label FROM calendar_tracks ORDER BY date,start_time,track')
         track_names = {}
         meeting_count = 0
         for track, name in meetings:
@@ -189,7 +188,7 @@ class Archive:
         race = next((r for r in meeting["races"] if r["number"] == number), None)
         if race is None:
             raise LookupError("Race not found")
-        entries = [self.person_names().entry(json.loads(row[0])) for row in self.db.execute("SELECT data FROM entries WHERE date=? AND track=? AND race_number=? ORDER BY CAST(program_number AS INTEGER),program_number", (day, track, number))]
+        entries = [self.person_names(scoped=True).entry(json.loads(row[0])) for row in self.db.execute("SELECT data FROM entries WHERE date=? AND track=? AND race_number=? ORDER BY CAST(program_number AS INTEGER),program_number", (day, track, number))]
         form = {entry['horseId']: self.horse_starts(entry['horseId'], before=day, limit=5)
                 for entry in entries}
         return {**meeting, "race": race, "entries": entries, "form": form,
@@ -354,7 +353,7 @@ class Archive:
             if not self.visible_race(entry["date"], entry["track"], entry["race_number"]):
                 continue
             item = dict(entry)
-            item["data"] = self.person_names().entry(json.loads(item["data"]))
+            item["data"] = self.person_names(scoped=True).entry(json.loads(item["data"]))
             item["meeting_data"] = json.loads(item["meeting_data"])
             starts.append(item)
             if limit is not None and len(starts) >= limit:
